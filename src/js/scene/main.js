@@ -17,7 +17,6 @@ var SUPER_RENKOCHAN_TIME_COUNT = 60 * 20;
 
 
 /* TODO:
-クリックすると蓮子が回転する
 → 大小／回転／表情変更
 
 音（クリックしたとき／蓮子ちゃんタイム入ったとき）
@@ -36,17 +35,32 @@ var SceneStage = function(core) {
 
 	// 蓮子
 	self.renko = new UIParts(self, this.width/2, this.height/2, 400, 320, function draw () {
+
+		// 蓮子を押下すると収縮する
+		if(this.core.input_manager.isLeftClickDown()) {
+			if (this.size > 0.5) this.size-=0.05;
+		}
+		else {
+			if (1.0 > this.size) this.size+=0.05;
+		}
+
+
 		var ctx = this.core.ctx;
 		ctx.save();
 		ctx.translate(this.x(), this.y());
 		if (false) { // 反転
 			ctx.transform(-1, 0, 0, 1, 0, 0);
 		}
-		ctx.drawImage(self.renko_canvas, -self.renko_canvas.width/2, -self.renko_canvas.height/2);
+		ctx.drawImage(self.renko_canvas,
+			-self.renko_canvas.width/2  * this.size,
+			-self.renko_canvas.height/2 * this.size,
+			self.renko_canvas.width  * this.size,
+			self.renko_canvas.height * this.size
+		);
 
 		ctx.restore();
 	});
-
+	self.renko.setVariable("size", 1);
 };
 util.inherit(SceneStage, base_scene);
 
