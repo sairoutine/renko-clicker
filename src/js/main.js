@@ -14,4 +14,8 @@ window.onload = function() {
 	game.init();
 	game.startRun();
 };
+// for electron
+if (window.require) {
+	window.require('electron').webFrame.setVisualZoomLevelLimits(1,1); //zoomさせない
+}
 
