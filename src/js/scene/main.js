@@ -5,14 +5,48 @@ var base_scene = require('../hakurei').scene.base;
 var util = require('../hakurei').util;
 var CONSTANT = require('../hakurei').constant;
 
+var UIParts = require('../hakurei').object.ui_parts;
+
+/* TODO:
+クリックするとメリーが落ちてくる
+クリックするとスコアが上がる
+スコア閾値ゲージ作成
+スコアが閾値を超えると、スーパー蓮子ちゃんタイムになる
+→ 背景変更／ロゴがにゅいんと出て来る
+クリックすると蓮子が回転する
+→ 大小／回転／表情変更
+*/
+
 var SceneStage = function(core) {
 	base_scene.apply(this, arguments);
+	var self = this;
+	self.ui_parts = [];
+
+	self.renko_canvas = null;
+
+	// 蓮子
+	self.renko = new UIParts(self, this.width/2, this.height/2, 400, 320, function draw () {
+		var ctx = this.core.ctx;
+		ctx.save();
+		ctx.translate(this.x(), this.y());
+		if (false) { // 反転
+			ctx.transform(-1, 0, 0, 1, 0, 0);
+		}
+		ctx.drawImage(self.renko_canvas, -self.renko_canvas.width/2, -self.renko_canvas.height/2);
+
+		ctx.restore();
+	});
+
 };
 util.inherit(SceneStage, base_scene);
 
 SceneStage.prototype.init = function(field_name, is_right){
 	base_scene.prototype.init.apply(this, arguments);
 
+	this.renko_canvas = this._createRenko("00", "00", "00");
+
+	this.removeAllObject();
+	this.addObjects(this.renko);
 };
 
 SceneStage.prototype.beforeDraw = function(){
@@ -23,7 +57,6 @@ SceneStage.prototype.beforeDraw = function(){
 SceneStage.prototype.draw = function(){
 	var ctx = this.core.ctx;
 
-	var renko_canvas = this._createRenko("00", "00", "00");
 
 	// 背景描画
 	var bg = this.core.image_loader.getImage("bg_super");
@@ -36,15 +69,6 @@ SceneStage.prototype.draw = function(){
 					0,
 					this.core.width,
 					this.core.height);
-
-	ctx.save();
-	ctx.translate(this.width/2 + 100, this.height/2 + 50);
-	if (false) { // 反転
-		ctx.transform(-1, 0, 0, 1, 0, 0);
-	}
-	ctx.drawImage(renko_canvas, -this.width/2, -this.height/2);
-
-	ctx.restore();
 
 	base_scene.prototype.draw.apply(this, arguments);
 /*
