@@ -21,6 +21,10 @@ var SUPER_RENKOCHAN_TIME_COUNT = 60 * 20;
 → 大小／回転／表情変更
 
 音（クリックしたとき／蓮子ちゃんタイム入ったとき）
+
+OGP
+アツマール
+ゆっくりの人に許可を取る
 */
 
 var SceneStage = function(core) {
