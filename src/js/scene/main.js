@@ -17,13 +17,11 @@ var SUPER_RENKOCHAN_TIME_COUNT = 60 * 20;
 
 
 /* TODO:
-→ 大小／回転／表情変更
-
-音（クリックしたとき／蓮子ちゃんタイム入ったとき）
-
 OGP
 アツマール
 ゆっくりの人に許可を取る
+謝辞と遊び方を書く
+いらない素材の削除
 */
 
 var SceneStage = function(core) {
@@ -110,6 +108,8 @@ SceneStage.prototype.beforeDraw = function(){
 				}
 				this.score += num;
 			}
+
+			this.core.audio_loader.playSound("got");
 		}
 	}
 
@@ -119,6 +119,8 @@ SceneStage.prototype.beforeDraw = function(){
 		this._renko_chan_score = 0;
 		this._renko_chan_time  = SUPER_RENKOCHAN_TIME_COUNT;
 		this._renko_chan_time_logo  = 0;
+
+		this.core.audio_loader.playSound("flash");
 	}
 	else if (this.is_renko_chan_time) {
 		// スーパー蓮子ちゃんタイム 終了判定
