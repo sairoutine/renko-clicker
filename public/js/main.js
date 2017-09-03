@@ -10903,7 +10903,8 @@ OGP
 アツマール
 ゆっくりの人に許可を取る
 謝辞と遊び方を書く
-いらない素材の削除
+※音が出るよ
+mp3 と ogg の統一
 */
 
 var SceneStage = function(core) {
