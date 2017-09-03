@@ -10,10 +10,11 @@ var UIParts = require('../hakurei').object.ui_parts;
 // スコア閾値ゲージの最大値
 var GAUGE_MAX = 100;
 
+// スーパー蓮子ちゃんタイム時間
+var SUPER_RENKOCHAN_TIME_COUNT = 60 * 20;
 
 /* TODO:
-スコアが閾値を超えると、スーパー蓮子ちゃんタイムになる
-→ 背景変更／ロゴがにゅいんと出て来る
+→ スーパー蓮子ちゃんタイムになるとロゴがにゅいんと出て来る
 クリックすると蓮子が回転する
 → 大小／回転／表情変更
 
@@ -61,6 +62,7 @@ SceneStage.prototype.init = function(field_name, is_right){
 SceneStage.prototype.beforeDraw = function(){
 	base_scene.prototype.beforeDraw.apply(this, arguments);
 
+	// 左クリックが発生したときの処理
 	if(this.core.input_manager.isLeftClickPush()) {
 		// 左クリックしたところを取得
 		var x = this.core.input_manager.mousePositionX();
@@ -83,6 +85,23 @@ SceneStage.prototype.beforeDraw = function(){
 				}
 				this.score += num;
 			}
+		}
+	}
+
+	// スーパー蓮子ちゃんタイム 発生判定
+	if (!this.is_renko_chan_time && this._renko_chan_score >= GAUGE_MAX) {
+		this.is_renko_chan_time = true;
+		this._renko_chan_score = 0;
+		this._renko_chan_time  = SUPER_RENKOCHAN_TIME_COUNT;
+	}
+	else if (this.is_renko_chan_time) {
+		// スーパー蓮子ちゃんタイム 終了判定
+		if (this._renko_chan_time <= 0) {
+			this.is_renko_chan_time = false;
+			this._renko_chan_time  = 0;
+		}
+		else {
+			this._renko_chan_time--;
 		}
 	}
 };
