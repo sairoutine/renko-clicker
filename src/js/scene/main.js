@@ -9,17 +9,18 @@ var UIParts = require('../hakurei').object.ui_parts;
 
 // スコア閾値ゲージの最大値
 var GAUGE_MAX = 100;
-
+// スコア閾値ゲージ余白
+var VITAL_OUTLINE_MARGIN = 5;
 // スーパー蓮子ちゃんタイム時間
 var SUPER_RENKOCHAN_TIME_COUNT = 60 * 20;
 
+
+
 /* TODO:
-→ スーパー蓮子ちゃんタイムになるとロゴがにゅいんと出て来る
 クリックすると蓮子が回転する
 → 大小／回転／表情変更
 
-蓮子をメリーの前へ
-画面外オブジェクトの削除
+音（クリックしたとき／蓮子ちゃんタイム入ったとき）
 */
 
 var SceneStage = function(core) {
@@ -57,12 +58,16 @@ SceneStage.prototype.init = function(field_name, is_right){
 	this._renko_chan_score = 0;
 	this._renko_chan_time  = 0;
 	this.is_renko_chan_time  = false;
+	this._renko_chan_time_logo  = 0;
 };
 
 SceneStage.prototype.beforeDraw = function(){
 	base_scene.prototype.beforeDraw.apply(this, arguments);
 
 	this.renko.beforeDraw(); // 蓮子
+
+	// 画面外に出たメリーの削除
+	this.removeOutOfStageObjects();
 
 	// 左クリックが発生したときの処理
 	if(this.core.input_manager.isLeftClickPush()) {
@@ -95,6 +100,7 @@ SceneStage.prototype.beforeDraw = function(){
 		this.is_renko_chan_time = true;
 		this._renko_chan_score = 0;
 		this._renko_chan_time  = SUPER_RENKOCHAN_TIME_COUNT;
+		this._renko_chan_time_logo  = 0;
 	}
 	else if (this.is_renko_chan_time) {
 		// スーパー蓮子ちゃんタイム 終了判定
@@ -104,6 +110,9 @@ SceneStage.prototype.beforeDraw = function(){
 		}
 		else {
 			this._renko_chan_time--;
+			if (this._renko_chan_time_logo < 100) {
+				this._renko_chan_time_logo+=2;
+			}
 		}
 	}
 };
@@ -147,6 +156,11 @@ SceneStage.prototype.draw = function(){
 
 	// スコア閾値ゲージ表示
 	this._showGauge();
+
+	// スーパー蓮子ちゃんタイムロゴ表示
+	this._showLogo();
+
+
 
 	ctx.restore();
 };
@@ -255,7 +269,6 @@ SceneStage.prototype._createMerry = function(){
 
 };
 
-var VITAL_OUTLINE_MARGIN = 5;
 // スコア閾値ゲージ
 SceneStage.prototype._showGauge = function(){
 	var ctx = this.core.ctx;
@@ -271,6 +284,53 @@ SceneStage.prototype._showGauge = function(){
 
 	ctx.restore();
 };
+
+// スーパー蓮子ちゃんタイム ロゴ
+SceneStage.prototype._showLogo = function(){
+	if (this.is_renko_chan_time) {
+		var ctx = this.core.ctx;
+		ctx.save();
+
+		// スーパー蓮子ちゃんタイム
+		var logo = this.core.image_loader.getImage("super_logo");
+		ctx.translate(this.width/2 + 50, 80);
+
+		var width = logo.width  * this._renko_chan_time_logo/100 * 0.5;
+		var height = logo.height * this._renko_chan_time_logo/100 * 1.0;
+
+		ctx.drawImage(logo,
+			-width/2,
+			-height/2,
+			width,
+			height
+		);
+
+		ctx.restore();
+	}
+};
+var EXTRA_OUT_OF_SIZE = 100;
+// 画面外に出たオブジェクトを消去する
+SceneStage.prototype.removeOutOfStageObjects = function() {
+	var new_objects = [];
+
+	// オブジェクトが画面外に出たかどうか判定
+	for(var i = 0, len = this.objects.length; i<len; i++) {
+		var object = this.objects[i];
+		if(object.x() + EXTRA_OUT_OF_SIZE < 0 ||
+		   object.y() + EXTRA_OUT_OF_SIZE < 0 ||
+		   object.x() > this.width  + EXTRA_OUT_OF_SIZE ||
+		   object.y() > this.height + EXTRA_OUT_OF_SIZE
+		  ) {
+			  // 削除するので何もしない
+		}
+		else {
+			new_objects.push(object);
+		}
+	}
+
+	this.objects = new_objects;
+};
+
 
 
 
