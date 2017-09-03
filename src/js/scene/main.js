@@ -46,11 +46,41 @@ SceneStage.prototype.init = function(field_name, is_right){
 	this.renko_canvas = this._createRenko("00", "00", "00");
 
 	this.removeAllObject();
-	this.addObjects(this.renko);
+	this.addObject(this.renko); // 蓮子
+
+	this.score = 0;
+	this._renko_chan_score = 0;
+	this._renko_chan_time  = 0;
+	this.is_renko_chan_time  = false;
 };
 
 SceneStage.prototype.beforeDraw = function(){
 	base_scene.prototype.beforeDraw.apply(this, arguments);
+
+	if(this.core.input_manager.isLeftClickPush()) {
+		// 左クリックしたところを取得
+		var x = this.core.input_manager.mousePositionX();
+		var y = this.core.input_manager.mousePositionY();
+
+		if(this.renko.checkCollisionWithPosition(x, y)) {
+			if (!this.is_renko_chan_time) {
+				// メリー生成
+				//this.addObject(this._createMerry());
+
+				this.score += 1;
+				this._renko_chan_score += 1;
+			}
+			else { // スーパー蓮子ちゃんタイム
+				var num = 25;
+
+				for (var i = 0, len = num; i < len; i++) {
+					// メリー生成
+					this.addObject(this._createMerry());
+				}
+				this.score += num;
+			}
+		}
+	}
 };
 
 // 画面更新
@@ -71,19 +101,15 @@ SceneStage.prototype.draw = function(){
 					this.core.height);
 
 	base_scene.prototype.draw.apply(this, arguments);
-/*
-	// フィールド名 表示
-	// TODO: 削除
-	ctx.font = "30px 'OradanoGSRR'";
-	ctx.textAlign = 'center';
+
+	// スコア表示
+	ctx.font = "48px 'Comic Sans MS'";
+	ctx.textAlign = 'right';
 	ctx.textBaseAlign = 'middle';
 	ctx.fillStyle = 'rgb( 0, 0, 0 )';
-	ctx.fillText(this.field().name, this.width - 100, this.height - 10);
+	ctx.fillText("Score: " + this.score, this.width - 10, this.height - 10);
 
 	ctx.restore();
-
-	// こいし／サブシーン描画
-*/
 };
 
 
