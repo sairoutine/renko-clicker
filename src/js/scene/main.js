@@ -22,7 +22,8 @@ SceneStage.prototype.beforeDraw = function(){
 // 画面更新
 SceneStage.prototype.draw = function(){
 	var ctx = this.core.ctx;
-	ctx.save();
+
+	var renko_canvas = this._createRenko("00", "00", "00");
 
 	// 背景描画
 	var bg = this.core.image_loader.getImage("bg_super");
@@ -36,39 +37,16 @@ SceneStage.prototype.draw = function(){
 					this.core.width,
 					this.core.height);
 
-	var renko_base = this.core.image_loader.getImage("renko_base");
-	ctx.drawImage(renko_base,
-					0,
-					0,
-					renko_base.width,
-					renko_base.height
-	);
-
-	var renko_eye = this.core.image_loader.getImage("renko_eye_00");
-	ctx.drawImage(renko_eye,
-					0,
-					0,
-					renko_eye.width,
-					renko_eye.height
-	);
-
-	var renko_eyebrow = this.core.image_loader.getImage("renko_eyebrow_00");
-	ctx.drawImage(renko_eyebrow,
-					0,
-					0,
-					renko_eyebrow.width,
-					renko_eyebrow.height
-	);
-
-	var renko_mouse = this.core.image_loader.getImage("renko_mouse_00");
-	ctx.drawImage(renko_mouse,
-					0,
-					0,
-					renko_mouse.width,
-					renko_mouse.height
-	);
+	ctx.save();
+	ctx.translate(this.width/2 + 100, this.height/2 + 50);
+	if (false) { // 反転
+		ctx.transform(-1, 0, 0, 1, 0, 0);
+	}
+	ctx.drawImage(renko_canvas, -this.width/2, -this.height/2);
 
 	ctx.restore();
+
+	base_scene.prototype.draw.apply(this, arguments);
 /*
 	// フィールド名 表示
 	// TODO: 削除
@@ -81,9 +59,58 @@ SceneStage.prototype.draw = function(){
 	ctx.restore();
 
 	// こいし／サブシーン描画
-	base_scene.prototype.draw.apply(this, arguments);
 */
 };
+
+
+SceneStage.prototype._createRenko = function(){
+	// create canvas
+	var canvas = window.document.createElement('canvas');
+	canvas.width  = 400;
+	canvas.height = 320;
+	var ctx2 = canvas.getContext('2d');
+
+	var renko_base = this.core.image_loader.getImage("renko_base");
+	ctx2.drawImage(renko_base,
+					0,
+					0,
+					renko_base.width,
+					renko_base.height
+	);
+
+	var renko_eye = this.core.image_loader.getImage("renko_eye_00");
+	ctx2.drawImage(renko_eye,
+					0,
+					0,
+					renko_eye.width,
+					renko_eye.height
+	);
+
+	var renko_eyebrow = this.core.image_loader.getImage("renko_eyebrow_00");
+	ctx2.drawImage(renko_eyebrow,
+					0,
+					0,
+					renko_eyebrow.width,
+					renko_eyebrow.height
+	);
+
+	var renko_mouse = this.core.image_loader.getImage("renko_mouse_00");
+	ctx2.drawImage(renko_mouse,
+					0,
+					0,
+					renko_mouse.width,
+					renko_mouse.height
+	);
+
+	return canvas;
+};
+
+
+
+
+
+
+
 
 
 module.exports = SceneStage;
