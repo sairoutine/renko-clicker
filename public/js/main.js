@@ -1,7 +1,72 @@
 (function e(t,n,r){function s(o,u){if(!n[o]){if(!t[o]){var a=typeof require=="function"&&require;if(!u&&a)return a(o,!0);if(i)return i(o,!0);var f=new Error("Cannot find module '"+o+"'");throw f.code="MODULE_NOT_FOUND",f}var l=n[o]={exports:{}};t[o][0].call(l.exports,function(e){var n=t[o][1][e];return s(n?n:e)},l,l.exports,e,t,n,r)}return n[o].exports}var i=typeof require=="function"&&require;for(var o=0;o<r.length;o++)s(r[o]);return s})({1:[function(require,module,exports){
 'use strict';
+
+var AssetsConfig = {};
+AssetsConfig.images = {
+	// from http://mangatop.info/sozai/comicline/952/
+	bg_super: "./image/bg_super.png",
+	// https://rare25.github.io/5000choyen/
+	super_logo: "./image/super_logo.png",
+	renko_base: "./image/renko/base/00.png",
+	renko_eye_00: "./image/renko/eye/00.png",
+	renko_eyebrow_00: "./image/renko/eyebrow/00.png",
+	renko_mouse_00: "./image/renko/mouse/00.png",
+
+	merry_base: "./image/merry/base/00.png",
+	merry_eye_00: "./image/merry/eye/00.png",
+	merry_eyebrow_00: "./image/merry/eyebrow/00.png",
+	merry_mouse_00: "./image/merry/mouse/00.png",
+};
+
+AssetsConfig.sounds = {
+	// https://sounddictionary.info/
+	// シャキーン4
+	flash: {
+		path: "./sound/flash.mp3",
+		volume: 1.0,
+	},
+	// 多分 魔王魂
+	got: {
+		path: "./sound/got.ogg",
+		volume: 1.0,
+	},
+
+};
+
+AssetsConfig.bgms = {
+};
+
+
+module.exports = AssetsConfig;
+
+},{}],2:[function(require,module,exports){
+'use strict';
+var DEBUG = require("./debug_constant");
+
+var CONSTANT = {
+	DEBUG: {},
+};
+
+if (DEBUG.ON) {
+	CONSTANT.DEBUG = DEBUG;
+}
+module.exports = CONSTANT;
+
+},{"./debug_constant":3}],3:[function(require,module,exports){
+'use strict';
+var DEBUG = {
+	ON: false,
+};
+
+module.exports = DEBUG;
+
+},{}],4:[function(require,module,exports){
+'use strict';
 var core = require('./hakurei').core;
 var util = require('./hakurei').util;
+
+var SceneMain = require('./scene/main');
+var SceneLoading = require('./scene/loading');
 
 var Game = function(canvas) {
 	core.apply(this, arguments);
@@ -11,15 +76,23 @@ util.inherit(Game, core);
 Game.prototype.init = function () {
 	core.prototype.init.apply(this, arguments);
 };
+Game.prototype.init = function () {
+	core.prototype.init.apply(this, arguments);
+
+	this.addScene("loading", new SceneLoading(this));
+	this.addScene("main", new SceneMain(this));
+
+	this.changeScene("loading");
+};
 
 module.exports = Game;
 
-},{"./hakurei":2}],2:[function(require,module,exports){
+},{"./hakurei":5,"./scene/loading":42,"./scene/main":43}],5:[function(require,module,exports){
 'use strict';
 
 module.exports = require("./hakureijs/index");
 
-},{"./hakureijs/index":10}],3:[function(require,module,exports){
+},{"./hakureijs/index":13}],6:[function(require,module,exports){
 'use strict';
 
 var AudioLoader = function() {
@@ -215,7 +288,7 @@ AudioLoader.prototype.progress = function() {
 
 module.exports = AudioLoader;
 
-},{}],4:[function(require,module,exports){
+},{}],7:[function(require,module,exports){
 'use strict';
 
 var FontLoader = function() {
@@ -241,7 +314,7 @@ FontLoader.prototype.progress = function() {
 
 module.exports = FontLoader;
 
-},{}],5:[function(require,module,exports){
+},{}],8:[function(require,module,exports){
 'use strict';
 
 var ImageLoader = function() {
@@ -295,7 +368,7 @@ ImageLoader.prototype.progress = function() {
 
 module.exports = ImageLoader;
 
-},{}],6:[function(require,module,exports){
+},{}],9:[function(require,module,exports){
 'use strict';
 
 // only keyboard (because core class uses key board map)
@@ -312,7 +385,7 @@ var Constant = {
 
 module.exports = Constant;
 
-},{}],7:[function(require,module,exports){
+},{}],10:[function(require,module,exports){
 'use strict';
 
 var CONSTANT = {
@@ -344,7 +417,7 @@ CONSTANT.SPRITE3D.A_SIZE =
 
 module.exports = CONSTANT;
 
-},{}],8:[function(require,module,exports){
+},{}],11:[function(require,module,exports){
 'use strict';
 
 /* TODO: create input_manager class */
@@ -669,7 +742,7 @@ Core.prototype.createWebGLContext = function(canvas) {
 
 module.exports = Core;
 
-},{"./asset_loader/audio":3,"./asset_loader/font":4,"./asset_loader/image":5,"./constant":6,"./debug_manager":9,"./input_manager":11,"./scene/loading":30,"./shader/main.fs":32,"./shader/main.vs":33,"./shader_program":34,"webgl-debug":22}],9:[function(require,module,exports){
+},{"./asset_loader/audio":6,"./asset_loader/font":7,"./asset_loader/image":8,"./constant":9,"./debug_manager":12,"./input_manager":14,"./scene/loading":33,"./shader/main.fs":35,"./shader/main.vs":36,"./shader_program":37,"webgl-debug":25}],12:[function(require,module,exports){
 'use strict';
 
 var DebugManager = function (core) {
@@ -722,7 +795,7 @@ DebugManager.prototype.addMenuButton = function (button_value, func) {
 
 module.exports = DebugManager;
 
-},{}],10:[function(require,module,exports){
+},{}],13:[function(require,module,exports){
 'use strict';
 module.exports = {
 	util: require("./util"),
@@ -754,7 +827,7 @@ module.exports = {
 
 };
 
-},{"./asset_loader/audio":3,"./asset_loader/font":4,"./asset_loader/image":5,"./constant":6,"./core":8,"./object/base":23,"./object/pool_manager":24,"./object/pool_manager3d":25,"./object/sprite":26,"./object/sprite3d":27,"./object/ui_parts":28,"./scene/base":29,"./scene/loading":30,"./serif_manager":31,"./shader_program":34,"./storage/base":35,"./storage/save":36,"./util":37}],11:[function(require,module,exports){
+},{"./asset_loader/audio":6,"./asset_loader/font":7,"./asset_loader/image":8,"./constant":9,"./core":11,"./object/base":26,"./object/pool_manager":27,"./object/pool_manager3d":28,"./object/sprite":29,"./object/sprite3d":30,"./object/ui_parts":31,"./scene/base":32,"./scene/loading":33,"./serif_manager":34,"./shader_program":37,"./storage/base":38,"./storage/save":39,"./util":40}],14:[function(require,module,exports){
 'use strict';
 
 var CONSTANT = require("./constant");
@@ -1151,7 +1224,7 @@ InputManager.prototype.dumpGamePadKey = function() {
 
 module.exports = InputManager;
 
-},{"./constant":6,"./util":37}],12:[function(require,module,exports){
+},{"./constant":9,"./util":40}],15:[function(require,module,exports){
 /**
  * @fileoverview gl-matrix - High performance matrix and vector operations
  * @author Brandon Jones
@@ -1189,7 +1262,7 @@ exports.quat = require("./gl-matrix/quat.js");
 exports.vec2 = require("./gl-matrix/vec2.js");
 exports.vec3 = require("./gl-matrix/vec3.js");
 exports.vec4 = require("./gl-matrix/vec4.js");
-},{"./gl-matrix/common.js":13,"./gl-matrix/mat2.js":14,"./gl-matrix/mat2d.js":15,"./gl-matrix/mat3.js":16,"./gl-matrix/mat4.js":17,"./gl-matrix/quat.js":18,"./gl-matrix/vec2.js":19,"./gl-matrix/vec3.js":20,"./gl-matrix/vec4.js":21}],13:[function(require,module,exports){
+},{"./gl-matrix/common.js":16,"./gl-matrix/mat2.js":17,"./gl-matrix/mat2d.js":18,"./gl-matrix/mat3.js":19,"./gl-matrix/mat4.js":20,"./gl-matrix/quat.js":21,"./gl-matrix/vec2.js":22,"./gl-matrix/vec3.js":23,"./gl-matrix/vec4.js":24}],16:[function(require,module,exports){
 /* Copyright (c) 2015, Brandon Jones, Colin MacKenzie IV.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -1261,7 +1334,7 @@ glMatrix.equals = function(a, b) {
 
 module.exports = glMatrix;
 
-},{}],14:[function(require,module,exports){
+},{}],17:[function(require,module,exports){
 /* Copyright (c) 2015, Brandon Jones, Colin MacKenzie IV.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -1699,7 +1772,7 @@ mat2.multiplyScalarAndAdd = function(out, a, b, scale) {
 
 module.exports = mat2;
 
-},{"./common.js":13}],15:[function(require,module,exports){
+},{"./common.js":16}],18:[function(require,module,exports){
 /* Copyright (c) 2015, Brandon Jones, Colin MacKenzie IV.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -2170,7 +2243,7 @@ mat2d.equals = function (a, b) {
 
 module.exports = mat2d;
 
-},{"./common.js":13}],16:[function(require,module,exports){
+},{"./common.js":16}],19:[function(require,module,exports){
 /* Copyright (c) 2015, Brandon Jones, Colin MacKenzie IV.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -2918,7 +2991,7 @@ mat3.equals = function (a, b) {
 
 module.exports = mat3;
 
-},{"./common.js":13}],17:[function(require,module,exports){
+},{"./common.js":16}],20:[function(require,module,exports){
 /* Copyright (c) 2015, Brandon Jones, Colin MacKenzie IV.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -5056,7 +5129,7 @@ mat4.equals = function (a, b) {
 
 module.exports = mat4;
 
-},{"./common.js":13}],18:[function(require,module,exports){
+},{"./common.js":16}],21:[function(require,module,exports){
 /* Copyright (c) 2015, Brandon Jones, Colin MacKenzie IV.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -5658,7 +5731,7 @@ quat.equals = vec4.equals;
 
 module.exports = quat;
 
-},{"./common.js":13,"./mat3.js":16,"./vec3.js":20,"./vec4.js":21}],19:[function(require,module,exports){
+},{"./common.js":16,"./mat3.js":19,"./vec3.js":23,"./vec4.js":24}],22:[function(require,module,exports){
 /* Copyright (c) 2015, Brandon Jones, Colin MacKenzie IV.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -6247,7 +6320,7 @@ vec2.equals = function (a, b) {
 
 module.exports = vec2;
 
-},{"./common.js":13}],20:[function(require,module,exports){
+},{"./common.js":16}],23:[function(require,module,exports){
 /* Copyright (c) 2015, Brandon Jones, Colin MacKenzie IV.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -7026,7 +7099,7 @@ vec3.equals = function (a, b) {
 
 module.exports = vec3;
 
-},{"./common.js":13}],21:[function(require,module,exports){
+},{"./common.js":16}],24:[function(require,module,exports){
 /* Copyright (c) 2015, Brandon Jones, Colin MacKenzie IV.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -7637,7 +7710,7 @@ vec4.equals = function (a, b) {
 
 module.exports = vec4;
 
-},{"./common.js":13}],22:[function(require,module,exports){
+},{"./common.js":16}],25:[function(require,module,exports){
 (function (global){
 /*
 ** Copyright (c) 2012 The Khronos Group Inc.
@@ -8595,7 +8668,7 @@ return {
 module.exports = WebGLDebugUtils;
 
 }).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{}],23:[function(require,module,exports){
+},{}],26:[function(require,module,exports){
 'use strict';
 
 var util = require('../util');
@@ -8879,7 +8952,7 @@ ObjectBase.prototype.isOutOfStage = function( ) {
 module.exports = ObjectBase;
 
 
-},{"../util":37}],24:[function(require,module,exports){
+},{"../util":40}],27:[function(require,module,exports){
 'use strict';
 
 // TODO: add pooling logic
@@ -8977,7 +9050,7 @@ PoolManager.prototype.removeOutOfStageObjects = function() {
 
 module.exports = PoolManager;
 
-},{"../util":37,"./base":23}],25:[function(require,module,exports){
+},{"../util":40,"./base":26}],28:[function(require,module,exports){
 'use strict';
 
 // TODO: add pooling logic
@@ -9218,7 +9291,7 @@ PoolManager3D.prototype.shader = function(){
 
 module.exports = PoolManager3D;
 
-},{"../constant_3d":7,"../util":37,"./base":23,"gl-matrix":12}],26:[function(require,module,exports){
+},{"../constant_3d":10,"../util":40,"./base":26,"gl-matrix":15}],29:[function(require,module,exports){
 'use strict';
 var base_object = require('./base');
 var util = require('../util');
@@ -9361,7 +9434,7 @@ Sprite.prototype.alpha = function() {
 
 module.exports = Sprite;
 
-},{"../util":37,"./base":23}],27:[function(require,module,exports){
+},{"../util":40,"./base":26}],30:[function(require,module,exports){
 'use strict';
 var base_object = require('./base');
 var util = require('../util');
@@ -9706,7 +9779,7 @@ Sprite3d.prototype.isReflect = function(){
 
 module.exports = Sprite3d;
 
-},{"../constant_3d":7,"../util":37,"./base":23,"gl-matrix":12}],28:[function(require,module,exports){
+},{"../constant_3d":10,"../util":40,"./base":26,"gl-matrix":15}],31:[function(require,module,exports){
 'use strict';
 var base_object = require('./base');
 var Util = require('../util');
@@ -9763,7 +9836,7 @@ ObjectUIParts.prototype.draw = function(){
 
 module.exports = ObjectUIParts;
 
-},{"../util":37,"./base":23}],29:[function(require,module,exports){
+},{"../util":40,"./base":26}],32:[function(require,module,exports){
 'use strict';
 
 var SceneBase = function(core, scene) {
@@ -10003,7 +10076,7 @@ SceneBase.prototype.y = function(val) {
 module.exports = SceneBase;
 
 
-},{}],30:[function(require,module,exports){
+},{}],33:[function(require,module,exports){
 'use strict';
 
 // loading scene
@@ -10072,7 +10145,7 @@ SceneLoading.prototype.notifyAllLoaded = function(){
 
 module.exports = SceneLoading;
 
-},{"../util":37,"./base":29}],31:[function(require,module,exports){
+},{"../util":40,"./base":32}],34:[function(require,module,exports){
 'use strict';
 
 // typography speed
@@ -10319,13 +10392,13 @@ SerifManager.prototype.background_image = function () {
 
 module.exports = SerifManager;
 
-},{"./util":37}],32:[function(require,module,exports){
+},{"./util":40}],35:[function(require,module,exports){
 module.exports = "precision mediump float;\nuniform sampler2D uSampler;\nvarying vec2 vTextureCoordinates;\nvarying vec4 vColor;\n\nvoid main() {\n\tvec4 textureColor = texture2D(uSampler, vTextureCoordinates);\n\tgl_FragColor = textureColor * vColor;\n}\n\n";
 
-},{}],33:[function(require,module,exports){
+},{}],36:[function(require,module,exports){
 module.exports = "attribute vec3 aVertexPosition;\nattribute vec2 aTextureCoordinates;\nattribute vec4 aColor;\n\nuniform mat4 uMVMatrix;\nuniform mat4 uPMatrix;\nvarying vec2 vTextureCoordinates;\nvarying vec4 vColor;\n\nvoid main() {\n\tgl_Position = uPMatrix * uMVMatrix * vec4(aVertexPosition, 1.0);\n\tvTextureCoordinates = aTextureCoordinates;\n\tvColor = aColor;\n}\n\n";
 
-},{}],34:[function(require,module,exports){
+},{}],37:[function(require,module,exports){
 'use strict';
 var glmat = require("gl-matrix");
 
@@ -10396,7 +10469,7 @@ ShaderProgram.prototype.createShaderProgram = function(gl, vertex_shader, fragme
 
 module.exports = ShaderProgram;
 
-},{"gl-matrix":12}],35:[function(require,module,exports){
+},{"gl-matrix":15}],38:[function(require,module,exports){
 'use strict';
 
 /*
@@ -10596,7 +10669,7 @@ StorageBase.prototype._removeWebStorage = function() {
 
 module.exports = StorageBase;
 
-},{"../util":37}],36:[function(require,module,exports){
+},{"../util":40}],39:[function(require,module,exports){
 'use strict';
 var base_class = require('./base');
 var util = require('../util');
@@ -10618,7 +10691,7 @@ StorageSave.KEY = function(){
 
 module.exports = StorageSave;
 
-},{"../util":37,"./base":35}],37:[function(require,module,exports){
+},{"../util":40,"./base":38}],40:[function(require,module,exports){
 'use strict';
 var Util = {
 	inherit: function( child, parent ) {
@@ -10686,7 +10759,7 @@ var Util = {
 
 module.exports = Util;
 
-},{}],38:[function(require,module,exports){
+},{}],41:[function(require,module,exports){
 'use strict';
 var Game = require('./game');
 
@@ -10709,4 +10782,467 @@ if (window.require) {
 }
 
 
-},{"./game":1}]},{},[38]);
+},{"./game":4}],42:[function(require,module,exports){
+'use strict';
+
+// ローディングシーン
+
+var base_scene = require('../hakurei').scene.base;
+var util = require('../hakurei').util;
+var AssetsConfig = require('../assets_config');
+var CONSTANT = require('../constant');
+
+var SceneLoading = function(core) {
+	base_scene.apply(this, arguments);
+};
+util.inherit(SceneLoading, base_scene);
+
+SceneLoading.prototype.init = function() {
+	base_scene.prototype.init.apply(this, arguments);
+
+	// ゲームで使用する画像一覧
+	for (var key in AssetsConfig.images) {
+		this.core.image_loader.loadImage(key, AssetsConfig.images[key]);
+	}
+
+	// ゲームで使用するSE一覧
+	for (var key2 in AssetsConfig.sounds) {
+		var conf2 = AssetsConfig.sounds[key2];
+		this.core.audio_loader.loadSound(key2, conf2.path, conf2.volume);
+	}
+
+	// ゲームで使用するBGM一覧
+	for (var key3 in AssetsConfig.bgms) {
+		var conf3 = AssetsConfig.bgms[key3];
+		this.core.audio_loader.loadBGM(key3, conf3.path, 1.0, conf3.loopStart, conf3.loopEnd);
+	}
+};
+
+SceneLoading.prototype.beforeDraw = function() {
+	base_scene.prototype.beforeDraw.apply(this, arguments);
+
+	//if (this.core.image_loader.isAllLoaded() && this.core.audio_loader.isAllLoaded() && this.core.font_loader.isAllLoaded()) {
+	if (this.core.image_loader.isAllLoaded() && this.core.audio_loader.isAllLoaded()) {
+		this.core.changeScene("main");
+	}
+};
+SceneLoading.prototype.draw = function(){
+	base_scene.prototype.draw.apply(this, arguments);
+	var ctx = this.core.ctx;
+
+	if(!ctx) return; // 2D context has been depricated in this game
+
+	// 背景
+	ctx.save();
+	ctx.fillStyle = 'white';
+	ctx.fillRect(0, 0, this.core.width, this.core.height);
+	ctx.restore();
+
+	// メッセージ
+	var per_frame = this.frame_count % 60;
+	var DOT_SPAN = 15;
+
+	var dot = "";
+	if (DOT_SPAN > per_frame && per_frame >= 0) {
+		dot = "";
+	}
+	else if (DOT_SPAN*2 > per_frame && per_frame >= DOT_SPAN*1) {
+		dot = ".";
+	}
+	else if (DOT_SPAN*3 > per_frame && per_frame >= DOT_SPAN*2) {
+		dot = "..";
+	}
+	else {
+		dot = "...";
+	}
+
+	ctx.save();
+	ctx.fillStyle = 'rgb( 0, 0, 0 )';
+	ctx.textAlign = 'left';
+	ctx.font = "30px 'OradanoGSRR'";
+	ctx.fillText('Now Loading' + dot, this.core.width - 250, this.core.height - 50);
+	ctx.restore();
+
+
+	// プログレスバー
+	ctx.save();
+	ctx.fillStyle = 'rgb(119, 66, 244)';
+	ctx.fillRect(0, this.core.height - 20, this.core.width * this.progress(), 50);
+	ctx.restore();
+};
+
+
+SceneLoading.prototype.progress = function(){
+	var progress = (this.core.audio_loader.progress() + this.core.image_loader.progress() + this.core.font_loader.progress()) / 3;
+	return progress;
+};
+
+module.exports = SceneLoading;
+
+},{"../assets_config":1,"../constant":2,"../hakurei":5}],43:[function(require,module,exports){
+'use strict';
+
+var base_scene = require('../hakurei').scene.base;
+
+var util = require('../hakurei').util;
+var CONSTANT = require('../hakurei').constant;
+
+var UIParts = require('../hakurei').object.ui_parts;
+
+// スコア閾値ゲージの最大値
+var GAUGE_MAX = 100;
+// スコア閾値ゲージ余白
+var VITAL_OUTLINE_MARGIN = 5;
+// スーパー蓮子ちゃんタイム時間
+var SUPER_RENKOCHAN_TIME_COUNT = 60 * 20;
+
+
+
+/* TODO:
+OGP
+アツマール
+ゆっくりの人に許可を取る
+謝辞と遊び方を書く
+いらない素材の削除
+*/
+
+var SceneStage = function(core) {
+	base_scene.apply(this, arguments);
+	var self = this;
+	self.ui_parts = [];
+
+	self.renko_canvas = null;
+
+	// 蓮子
+	self.renko = new UIParts(self, this.width/2, this.height/2, 400, 320, function draw () {
+
+		// 蓮子を押下すると収縮する
+		if(this.core.input_manager.isLeftClickDown()) {
+			if (this.size > 0.5) this.size-=0.05;
+		}
+		else {
+			if (1.0 > this.size) this.size+=0.05;
+		}
+
+
+		var ctx = this.core.ctx;
+		ctx.save();
+		ctx.translate(this.x(), this.y());
+		if (false) { // 反転
+			ctx.transform(-1, 0, 0, 1, 0, 0);
+		}
+		ctx.drawImage(self.renko_canvas,
+			-self.renko_canvas.width/2  * this.size,
+			-self.renko_canvas.height/2 * this.size,
+			self.renko_canvas.width  * this.size,
+			self.renko_canvas.height * this.size
+		);
+
+		ctx.restore();
+	});
+	self.renko.setVariable("size", 1);
+};
+util.inherit(SceneStage, base_scene);
+
+SceneStage.prototype.init = function(field_name, is_right){
+	base_scene.prototype.init.apply(this, arguments);
+	this.removeAllObject();
+
+	this.renko_canvas = this._createRenko("00", "00", "00");
+
+	this.renko.init(); // 蓮子
+
+	this.score = 0;
+	this._renko_chan_score = 0;
+	this._renko_chan_time  = 0;
+	this.is_renko_chan_time  = false;
+	this._renko_chan_time_logo  = 0;
+};
+
+SceneStage.prototype.beforeDraw = function(){
+	base_scene.prototype.beforeDraw.apply(this, arguments);
+
+	this.renko.beforeDraw(); // 蓮子
+
+	// 画面外に出たメリーの削除
+	this.removeOutOfStageObjects();
+
+	// 左クリックが発生したときの処理
+	if(this.core.input_manager.isLeftClickPush()) {
+		// 左クリックしたところを取得
+		var x = this.core.input_manager.mousePositionX();
+		var y = this.core.input_manager.mousePositionY();
+
+		if(this.renko.checkCollisionWithPosition(x, y)) {
+			if (!this.is_renko_chan_time) {
+				// メリー生成
+				this.addObject(this._createMerry());
+
+				this.score += 1;
+				this._renko_chan_score += 1;
+			}
+			else { // スーパー蓮子ちゃんタイム
+				var num = 10;
+
+				for (var i = 0, len = num; i < len; i++) {
+					// メリー生成
+					this.addObject(this._createMerry());
+				}
+				this.score += num;
+			}
+
+			this.core.audio_loader.playSound("got");
+		}
+	}
+
+	// スーパー蓮子ちゃんタイム 発生判定
+	if (!this.is_renko_chan_time && this._renko_chan_score >= GAUGE_MAX) {
+		this.is_renko_chan_time = true;
+		this._renko_chan_score = 0;
+		this._renko_chan_time  = SUPER_RENKOCHAN_TIME_COUNT;
+		this._renko_chan_time_logo  = 0;
+
+		this.core.audio_loader.playSound("flash");
+	}
+	else if (this.is_renko_chan_time) {
+		// スーパー蓮子ちゃんタイム 終了判定
+		if (this._renko_chan_time <= 0) {
+			this.is_renko_chan_time = false;
+			this._renko_chan_time  = 0;
+		}
+		else {
+			this._renko_chan_time--;
+			if (this._renko_chan_time_logo < 100) {
+				this._renko_chan_time_logo+=2;
+			}
+		}
+	}
+};
+
+// 画面更新
+SceneStage.prototype.draw = function(){
+	var ctx = this.core.ctx;
+
+
+	// 背景描画
+	if (!this.is_renko_chan_time) {
+		ctx.fillStyle = "white";
+		ctx.fillRect(0, 0, this.width, this.height);
+
+	}
+	else {
+		// スーパー蓮子ちゃんタイム
+		var bg = this.core.image_loader.getImage("bg_super");
+		ctx.drawImage(bg,
+						0,
+						0,
+						bg.width,
+						bg.height,
+						0,
+						0,
+						this.core.width,
+						this.core.height);
+	}
+
+	// メリー達を表示
+	base_scene.prototype.draw.apply(this, arguments);
+
+	this.renko.draw(); // 蓮子
+
+	// スコア表示
+	ctx.font = "48px 'Comic Sans MS'";
+	ctx.textAlign = 'right';
+	ctx.textBaseAlign = 'middle';
+	ctx.fillStyle = 'rgb( 0, 0, 0 )';
+	ctx.fillText("Score: " + this.score, this.width - 10, this.height - 10);
+
+	// スコア閾値ゲージ表示
+	this._showGauge();
+
+	// スーパー蓮子ちゃんタイムロゴ表示
+	this._showLogo();
+
+
+
+	ctx.restore();
+};
+
+
+SceneStage.prototype._createRenko = function(){
+	// create canvas
+	var canvas = window.document.createElement('canvas');
+	canvas.width  = 400;
+	canvas.height = 320;
+	var ctx2 = canvas.getContext('2d');
+
+	var renko_base = this.core.image_loader.getImage("renko_base");
+	ctx2.drawImage(renko_base,
+					0,
+					0,
+					renko_base.width,
+					renko_base.height
+	);
+
+	var renko_eye = this.core.image_loader.getImage("renko_eye_00");
+	ctx2.drawImage(renko_eye,
+					0,
+					0,
+					renko_eye.width,
+					renko_eye.height
+	);
+
+	var renko_eyebrow = this.core.image_loader.getImage("renko_eyebrow_00");
+	ctx2.drawImage(renko_eyebrow,
+					0,
+					0,
+					renko_eyebrow.width,
+					renko_eyebrow.height
+	);
+
+	var renko_mouse = this.core.image_loader.getImage("renko_mouse_00");
+	ctx2.drawImage(renko_mouse,
+					0,
+					0,
+					renko_mouse.width,
+					renko_mouse.height
+	);
+
+	return canvas;
+};
+
+SceneStage.prototype._createMerry = function(){
+	// create canvas
+	var canvas = window.document.createElement('canvas');
+	canvas.width  = 400;
+	canvas.height = 320;
+	var ctx2 = canvas.getContext('2d');
+
+	var merry_base = this.core.image_loader.getImage("merry_base");
+	ctx2.drawImage(merry_base,
+					0,
+					0,
+					merry_base.width,
+					merry_base.height
+	);
+
+	var merry_eye = this.core.image_loader.getImage("merry_eye_00");
+	ctx2.drawImage(merry_eye,
+					0,
+					0,
+					merry_eye.width,
+					merry_eye.height
+	);
+
+	var merry_eyebrow = this.core.image_loader.getImage("merry_eyebrow_00");
+	ctx2.drawImage(merry_eyebrow,
+					0,
+					0,
+					merry_eyebrow.width,
+					merry_eyebrow.height
+	);
+
+	var merry_mouse = this.core.image_loader.getImage("merry_mouse_00");
+	ctx2.drawImage(merry_mouse,
+					0,
+					0,
+					merry_mouse.width,
+					merry_mouse.height
+	);
+
+	// 出現位置(ランダム)
+	var x = Math.floor(Math.random() * this.width);
+	var y = -60;
+	// メリーの角度
+	var rotate = Math.floor(Math.random() * 360);
+	var speed = 10 + Math.floor(Math.random() * 5);
+
+	return new UIParts(this, x, y, 0, 0, function draw () {
+		this.y(this.y() + speed);
+
+		var ctx = this.core.ctx;
+		ctx.save();
+		ctx.translate(this.x(), this.y());
+		ctx.rotate(rotate);
+		ctx.drawImage(canvas, -canvas.width/2, -canvas.height/2, canvas.width*0.5, canvas.height*0.5);
+
+		ctx.restore();
+	});
+
+
+};
+
+// スコア閾値ゲージ
+SceneStage.prototype._showGauge = function(){
+	var ctx = this.core.ctx;
+	ctx.save();
+
+	ctx.fillStyle = 'red';
+	ctx.fillRect(
+		VITAL_OUTLINE_MARGIN,
+		VITAL_OUTLINE_MARGIN,
+		this._renko_chan_score / GAUGE_MAX * (this.width - VITAL_OUTLINE_MARGIN * 2),
+		VITAL_OUTLINE_MARGIN * 4
+	);
+
+	ctx.restore();
+};
+
+// スーパー蓮子ちゃんタイム ロゴ
+SceneStage.prototype._showLogo = function(){
+	if (this.is_renko_chan_time) {
+		var ctx = this.core.ctx;
+		ctx.save();
+
+		// スーパー蓮子ちゃんタイム
+		var logo = this.core.image_loader.getImage("super_logo");
+		ctx.translate(this.width/2 + 50, 80);
+
+		var width = logo.width  * this._renko_chan_time_logo/100 * 0.5;
+		var height = logo.height * this._renko_chan_time_logo/100 * 1.0;
+
+		ctx.drawImage(logo,
+			-width/2,
+			-height/2,
+			width,
+			height
+		);
+
+		ctx.restore();
+	}
+};
+var EXTRA_OUT_OF_SIZE = 100;
+// 画面外に出たオブジェクトを消去する
+SceneStage.prototype.removeOutOfStageObjects = function() {
+	var new_objects = [];
+
+	// オブジェクトが画面外に出たかどうか判定
+	for(var i = 0, len = this.objects.length; i<len; i++) {
+		var object = this.objects[i];
+		if(object.x() + EXTRA_OUT_OF_SIZE < 0 ||
+		   object.y() + EXTRA_OUT_OF_SIZE < 0 ||
+		   object.x() > this.width  + EXTRA_OUT_OF_SIZE ||
+		   object.y() > this.height + EXTRA_OUT_OF_SIZE
+		  ) {
+			  // 削除するので何もしない
+		}
+		else {
+			new_objects.push(object);
+		}
+	}
+
+	this.objects = new_objects;
+};
+
+
+
+
+
+
+
+
+
+
+
+module.exports = SceneStage;
+
+},{"../hakurei":5}]},{},[41]);
