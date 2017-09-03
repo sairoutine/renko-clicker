@@ -47,11 +47,11 @@ util.inherit(SceneStage, base_scene);
 
 SceneStage.prototype.init = function(field_name, is_right){
 	base_scene.prototype.init.apply(this, arguments);
+	this.removeAllObject();
 
 	this.renko_canvas = this._createRenko("00", "00", "00");
 
-	this.removeAllObject();
-	this.addObject(this.renko); // 蓮子
+	this.renko.init(); // 蓮子
 
 	this.score = 0;
 	this._renko_chan_score = 0;
@@ -61,6 +61,8 @@ SceneStage.prototype.init = function(field_name, is_right){
 
 SceneStage.prototype.beforeDraw = function(){
 	base_scene.prototype.beforeDraw.apply(this, arguments);
+
+	this.renko.beforeDraw(); // 蓮子
 
 	// 左クリックが発生したときの処理
 	if(this.core.input_manager.isLeftClickPush()) {
@@ -77,7 +79,7 @@ SceneStage.prototype.beforeDraw = function(){
 				this._renko_chan_score += 1;
 			}
 			else { // スーパー蓮子ちゃんタイム
-				var num = 25;
+				var num = 10;
 
 				for (var i = 0, len = num; i < len; i++) {
 					// メリー生成
@@ -131,7 +133,10 @@ SceneStage.prototype.draw = function(){
 						this.core.height);
 	}
 
+	// メリー達を表示
 	base_scene.prototype.draw.apply(this, arguments);
+
+	this.renko.draw(); // 蓮子
 
 	// スコア表示
 	ctx.font = "48px 'Comic Sans MS'";
