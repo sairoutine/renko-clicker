@@ -17,16 +17,17 @@ AssetsConfig.images = {
 	merry_mouse_00: "./image/merry/mouse/00.png",
 };
 
+// sound ファイルはogg と m4a の二種類を用意してください
 AssetsConfig.sounds = {
 	// https://sounddictionary.info/
 	// シャキーン4
 	flash: {
-		path: "./sound/flash.mp3",
+		path: "./sound/flash",
 		volume: 1.0,
 	},
 	// 多分 魔王魂
 	got: {
-		path: "./sound/got.ogg",
+		path: "./sound/got",
 		volume: 1.0,
 	},
 
