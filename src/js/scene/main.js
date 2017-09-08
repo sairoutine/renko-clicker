@@ -14,17 +14,6 @@ var VITAL_OUTLINE_MARGIN = 5;
 // スーパー蓮子ちゃんタイム時間
 var SUPER_RENKOCHAN_TIME_COUNT = 60 * 20;
 
-
-
-/* TODO:
-OGP
-アツマール
-ゆっくりの人に許可を取る
-謝辞と遊び方を書く
-※音が出るよ
-mp3 と ogg の統一
-*/
-
 var SceneStage = function(core) {
 	base_scene.apply(this, arguments);
 	var self = this;
