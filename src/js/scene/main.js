@@ -3,7 +3,6 @@
 var base_scene = require('../hakurei').scene.base;
 
 var util = require('../hakurei').util;
-var CONSTANT = require('../hakurei').constant;
 
 var UIParts = require('../hakurei').object.ui_parts;
 

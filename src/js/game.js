@@ -16,10 +16,10 @@ Game.prototype.init = function () {
 Game.prototype.init = function () {
 	core.prototype.init.apply(this, arguments);
 
-	this.addScene("loading", new SceneLoading(this));
-	this.addScene("main", new SceneMain(this));
+	this.scene_manager.addScene("loading", new SceneLoading(this));
+	this.scene_manager.addScene("main", new SceneMain(this));
 
-	this.changeScene("loading");
+	this.scene_manager.changeScene("loading");
 };
 
 module.exports = Game;
