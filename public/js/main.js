@@ -1,4 +1,4 @@
-(function e(t,n,r){function s(o,u){if(!n[o]){if(!t[o]){var a=typeof require=="function"&&require;if(!u&&a)return a(o,!0);if(i)return i(o,!0);var f=new Error("Cannot find module '"+o+"'");throw f.code="MODULE_NOT_FOUND",f}var l=n[o]={exports:{}};t[o][0].call(l.exports,function(e){var n=t[o][1][e];return s(n?n:e)},l,l.exports,e,t,n,r)}return n[o].exports}var i=typeof require=="function"&&require;for(var o=0;o<r.length;o++)s(r[o]);return s})({1:[function(require,module,exports){
+(function(){function r(e,n,t){function o(i,f){if(!n[i]){if(!e[i]){var c="function"==typeof require&&require;if(!f&&c)return c(i,!0);if(u)return u(i,!0);var a=new Error("Cannot find module '"+i+"'");throw a.code="MODULE_NOT_FOUND",a}var p=n[i]={exports:{}};e[i][0].call(p.exports,function(r){var n=e[i][1][r];return o(n||r)},p,p.exports,r,e,n,t)}return n[i].exports}for(var u="function"==typeof require&&require,i=0;i<t.length;i++)o(t[i]);return o}return r})()({1:[function(require,module,exports){
 'use strict';
 
 var AssetsConfig = {};
@@ -42,27 +42,6 @@ module.exports = AssetsConfig;
 
 },{}],2:[function(require,module,exports){
 'use strict';
-var DEBUG = require("./debug_constant");
-
-var CONSTANT = {
-	DEBUG: {},
-};
-
-if (DEBUG.ON) {
-	CONSTANT.DEBUG = DEBUG;
-}
-module.exports = CONSTANT;
-
-},{"./debug_constant":3}],3:[function(require,module,exports){
-'use strict';
-var DEBUG = {
-	ON: false,
-};
-
-module.exports = DEBUG;
-
-},{}],4:[function(require,module,exports){
-'use strict';
 var core = require('./hakurei').core;
 var util = require('./hakurei').util;
 
@@ -80,20 +59,20 @@ Game.prototype.init = function () {
 Game.prototype.init = function () {
 	core.prototype.init.apply(this, arguments);
 
-	this.addScene("loading", new SceneLoading(this));
-	this.addScene("main", new SceneMain(this));
+	this.scene_manager.addScene("loading", new SceneLoading(this));
+	this.scene_manager.addScene("main", new SceneMain(this));
 
-	this.changeScene("loading");
+	this.scene_manager.changeScene("loading");
 };
 
 module.exports = Game;
 
-},{"./hakurei":5,"./scene/loading":42,"./scene/main":43}],5:[function(require,module,exports){
+},{"./hakurei":3,"./scene/loading":55,"./scene/main":56}],3:[function(require,module,exports){
 'use strict';
 
 module.exports = require("./hakureijs/index");
 
-},{"./hakureijs/index":13}],6:[function(require,module,exports){
+},{"./hakureijs/index":10}],4:[function(require,module,exports){
 'use strict';
 
 var AudioLoader = function() {
@@ -103,10 +82,9 @@ var AudioLoader = function() {
 	this.loading_audio_num = 0;
 	this.loaded_audio_num = 0;
 
-	this.id = 0;
-
-	// flag which determine what sound.
-	this.soundflag = 0x00;
+	// key: sound_name, value: only true
+	// which determine what sound is played.
+	this._reserved_play_sound_name_map = {};
 
 	this.audio_context = null;
 	if (window && window.AudioContext) {
@@ -116,13 +94,14 @@ var AudioLoader = function() {
 		this.audio_context.createGain = this.audio_context.createGain || this.audio_context.createGainNode;
 	}
 
-	// playing bgm name
-	this._playing_bgm_name = null;
-
-	// playing AudioBufferSourceNode instance
-	this.audio_source = null;
+	// key: bgm name, value: playing AudioBufferSourceNode instance
+	this._audio_source_map = {};
 };
 AudioLoader.prototype.init = function() {
+	// cancel already playing bgms if init method is called by re-init
+	this.stopAllBGM();
+
+	// TODO: cancel already playing sound?
 	// TODO: cancel already loading bgms and sounds
 
 	this.sounds = {};
@@ -131,20 +110,18 @@ AudioLoader.prototype.init = function() {
 	this.loading_audio_num = 0;
 	this.loaded_audio_num = 0;
 
-	this.id = 0;
+	this._reserved_play_sound_name_map = {};
 
-	this.soundflag = 0x00;
-
-	this._playing_bgm_name = null;
-
-	this.audio_source = null;
+	this._audio_source_map = {};
 };
 
 AudioLoader.prototype.loadSound = function(name, path, volume) {
+	if(!window || !window.Audio) return;
+
 	var self = this;
 	self.loading_audio_num++;
 
-	if(!volume) volume = 1.0;
+	if(typeof volume === 'undefined') volume = 1.0;
 
 
 	// it's done to load sound
@@ -152,19 +129,25 @@ AudioLoader.prototype.loadSound = function(name, path, volume) {
 		self.loaded_audio_num++;
 	};
 
-	var audio = new Audio(path);
+	var audio = new window.Audio(path);
 	audio.volume = volume;
 	audio.addEventListener('canplay', onload_function);
+	audio.addEventListener("error", function () {
+		throw new Error("Audio Element error. code: " + audio.error.code + ", message: " + audio.error.message);
+	});
 	audio.load();
 	self.sounds[name] = {
-		id: 1 << self.id++,
 		audio: audio,
 	};
 };
 
 AudioLoader.prototype.loadBGM = function(name, path, volume, loopStart, loopEnd) {
+	if (!this.audio_context) return;
+
 	var self = this;
 	self.loading_audio_num++;
+
+	if(typeof volume === 'undefined') volume = 1.0;
 
 	// it's done to load audio
 	var successCallback = function(audioBuffer) {
@@ -207,71 +190,221 @@ AudioLoader.prototype.isAllLoaded = function() {
 };
 
 AudioLoader.prototype.playSound = function(name) {
-	this.soundflag |= this.sounds[name].id;
+	if (!this.audio_context) return;
+	if (!(name in this.sounds)) throw new Error("Can't find sound '" + name + "'.");
+
+	this._reserved_play_sound_name_map[name] = true;
 };
 
 AudioLoader.prototype.executePlaySound = function() {
+	for(var name in this._reserved_play_sound_name_map) {
+		// play
+		this.sounds[name].audio.pause();
+		this.sounds[name].audio.currentTime = 0;
+		this.sounds[name].audio.play();
 
-	for(var name in this.sounds) {
-		if(this.soundflag & this.sounds[name].id) {
-			// play
-			this.sounds[name].audio.pause();
-			this.sounds[name].audio.currentTime = 0;
-			this.sounds[name].audio.play();
-
-			// delete flag
-			this.soundflag &= ~this.sounds[name].id;
-
-		}
+		// delete flag
+		delete this._reserved_play_sound_name_map[name];
 	}
 };
-AudioLoader.prototype.playBGM = function(name) {
-	var self = this;
 
-	// stop playing bgm
-	self.stopBGM();
+AudioLoader.prototype.playSoundByDataURL = function(dataurl, volume) {
+	if(!window || !window.Audio) return;
 
-	self._playing_bgm_name = name;
-	self.audio_source = self._createSourceNode(name);
-	self.audio_source.start(0);
+	if(typeof volume === 'undefined') volume = 1.0;
+
+	var audio = new window.Audio();
+	audio.volume = volume;
+	audio.src = dataurl;
+	audio.addEventListener('canplay', function () {
+		audio.play();
+	});
+	audio.addEventListener("error", function () {
+		throw new Error("Audio Element error. code: " + audio.error.code + ", message: " + audio.error.message);
+	});
+	audio.load();
 };
+
+
+
+AudioLoader.prototype.playBGM = function(name) {
+	// stop playing bgm
+	this.stopAllBGM();
+
+	this.addBGM(name);
+};
+AudioLoader.prototype.addBGM = function(name) {
+	if (!this.audio_context) return;
+	if (this.isPlayingBGM(name)) {
+		this.stopBGM(name);
+	}
+
+	this._audio_source_map[name] = this._createSourceNodeAndGainNode(name);
+	this._audio_source_map[name].source_node.start(0);
+};
+
 
 // play if the bgm is not playing now
 AudioLoader.prototype.changeBGM = function(name) {
-	if (this._playing_bgm_name !== name) {
+	if (!this.isPlayingBGM(name)) {
 		this.playBGM(name);
 	}
 };
-AudioLoader.prototype.stopBGM = function() {
-	var self = this;
-	if(self.isPlayingBGM()) {
-		self.audio_source.stop(0);
-		self.audio_source = null;
-		self._playing_bgm_name = null;
+AudioLoader.prototype.stopAllBGM = function() {
+	for (var bgm_name in this._audio_source_map) {
+		this.stopBGM(bgm_name);
 	}
 };
-AudioLoader.prototype.isPlayingBGM = function() {
-	return this.audio_source ? true : false;
-};
-AudioLoader.prototype.currentPlayingBGM = function() {
-	return this._playing_bgm_name;
+AudioLoader.prototype.stopBGMWithout = function(exclude_bgm_name) {
+	for (var bgm_name in this._audio_source_map) {
+		if (bgm_name !== exclude_bgm_name) {
+			this.stopBGM(bgm_name);
+		}
+	}
 };
 
 
-// create AudioBufferSourceNode instance
-AudioLoader.prototype._createSourceNode = function(name) {
+
+AudioLoader.prototype.stopBGM = function(name) {
+	if(typeof name === "undefined") {
+		return this.stopAllBGM();
+	}
+
+	// NOTE: not use AudioBufferSourceNode's stop method
+	// because it creates noises.
+	this.fadeOutBGM(0.1, name);
+
+	if (name in this._audio_source_map) {
+		delete this._audio_source_map[name];
+	}
+};
+AudioLoader.prototype.isPlayingBGM = function(name) {
+	if(typeof name === "undefined") {
+		return Object.keys(this._audio_source_map).length ? true : false;
+	}
+	else {
+		return name in this._audio_source_map ? true : false;
+	}
+};
+AudioLoader.prototype.fadeOutAllBGM = function (fadeout_time) {
+	for (var bgm_name in this._audio_source_map) {
+		this.fadeOutBGM(fadeout_time, bgm_name);
+	}
+};
+
+AudioLoader.prototype.fadeOutBGM = function (fadeout_time, bgm_name) {
+	if (!this.audio_context) return;
+	if(typeof bgm_name === "undefined") {
+		return this.fadeOutAllBGM(fadeout_time);
+	}
+
+	var map = this._audio_source_map[bgm_name];
+
+	if (!map) return;
+
+	var audio_gain = map.gain_node;
+
+	var gain = audio_gain.gain;
+	var startTime = this.audio_context.currentTime;
+	gain.cancelScheduledValues(startTime);
+	gain.setValueAtTime(gain.value, startTime); // for old browser
+	var endTime = startTime + fadeout_time;
+	gain.linearRampToValueAtTime(0, endTime);
+};
+
+AudioLoader.prototype.muteAllBGM = function () {
+	for (var bgm_name in this._audio_source_map) {
+		this.muteBGM(bgm_name);
+	}
+};
+
+AudioLoader.prototype.muteBGM = function (bgm_name) {
+	if (!this.audio_context) return;
+	if(typeof bgm_name === "undefined") {
+		return this.muteAllBGM();
+	}
+
+	var map = this._audio_source_map[bgm_name];
+
+	if (!map) return;
+
+	var audio_gain = map.gain_node;
+
+	// mute
+	audio_gain.gain.setValueAtTime(0, this.audio_context.currentTime);
+};
+AudioLoader.prototype.unMuteAllBGM = function () {
+	for (var bgm_name in this._audio_source_map) {
+		this.unMuteBGM(bgm_name);
+	}
+};
+
+AudioLoader.prototype.unMuteBGM = function (bgm_name) {
+	if (!this.audio_context) return;
+	if(typeof bgm_name === "undefined") {
+		return this.unMuteAllBGM();
+	}
+
+	var map = this._audio_source_map[bgm_name];
+
+	if (!map) return;
+
+	var audio_gain = map.gain_node;
+
+	var data = this.bgms[bgm_name];
+	audio_gain.gain.setValueAtTime(data.volume, this.audio_context.currentTime);
+};
+
+AudioLoader.prototype.unMuteWithFadeInAllBGM = function (fadein_time) {
+	for (var bgm_name in this._audio_source_map) {
+		this.unMuteWithFadeInBGM(fadein_time, bgm_name);
+	}
+};
+
+AudioLoader.prototype.unMuteWithFadeInBGM = function (fadein_time, bgm_name) {
+	if (!this.audio_context) return;
+	if(typeof bgm_name === "undefined") {
+		return this.unMuteWithFadeInAllBGM(fadein_time);
+	}
+
+	var map = this._audio_source_map[bgm_name];
+
+	if (!map) return;
+
+	var data = this.bgms[bgm_name];
+
+	var audio_gain = map.gain_node;
+
+	var gain = audio_gain.gain;
+	var startTime = this.audio_context.currentTime;
+	gain.setValueAtTime(gain.value, startTime); // for old browser
+	var endTime = startTime + fadein_time;
+	gain.linearRampToValueAtTime(data.volume, endTime);
+};
+
+
+
+
+
+
+
+
+
+// create AudioBufferSourceNode and GainNode instance
+AudioLoader.prototype._createSourceNodeAndGainNode = function(name) {
+	if (!this.audio_context) return;
 	var self = this;
 	var data = self.bgms[name];
 
 	var source = self.audio_context.createBufferSource();
 	source.buffer = data.audio;
 
-	if(data.loopStart || data.loopEnd) { source.loop = true; }
+	if("loopStart" in data || "loopEnd" in data) { source.loop = true; }
 	if(data.loopStart) { source.loopStart = data.loopStart; }
 	if(data.loopEnd)   { source.loopEnd = data.loopEnd; }
 
-	var audio_gain = this.audio_context.createGain();
-	audio_gain.gain.value = data.volume || 1.0;
+	var audio_gain = self.audio_context.createGain();
+	audio_gain.gain.setValueAtTime(data.volume, self.audio_context.currentTime);
 
 	source.connect(audio_gain);
 
@@ -279,43 +412,196 @@ AudioLoader.prototype._createSourceNode = function(name) {
 	source.start = source.start || source.noteOn;
 	source.stop  = source.stop  || source.noteOff;
 
-	return source;
+	return {
+		source_node: source,
+		gain_node: audio_gain,
+	};
 };
 
 AudioLoader.prototype.progress = function() {
+	// avoid division by zero
+	if (this.loading_audio_num === 0) return 1;
+
 	return this.loaded_audio_num / this.loading_audio_num;
 };
 
 
 module.exports = AudioLoader;
 
-},{}],7:[function(require,module,exports){
+},{}],5:[function(require,module,exports){
 'use strict';
 
+// TODO: refactor
+// - change private property name
+// - _isLoadedDone and fontStatuses's is_loaded are duplicated?
+// - isAllLoaded and progress method is a little slow
+// - add comment
+
 var FontLoader = function() {
-	this.is_done = false;
+	this._isLoadedDone = false;
+	this._loadedFonts  = null;
+	this._fontStatues  = {};
+	this._hiddenCanvas = null;
 };
 FontLoader.prototype.init = function() {
-	this.is_done = false;
+	this._isLoadedDone = false;
+	this._loadedFonts  = null;
+	this._fontStatues  = {};
 };
 FontLoader.prototype.isAllLoaded = function() {
-	return this.is_done;
-};
+	for (var name in this._fontStatues) {
+		if(!this.isLoaded(name)) return false;
+	}
 
-FontLoader.prototype.notifyLoadingDone = function() {
-	this.is_done = true;
+	return true;
 };
 
 FontLoader.prototype.progress = function() {
-	return this.is_done ? 1 : 0;
+	var all_font_num    = 0;
+	var loaded_font_num = 0;
+	for (var name in this._fontStatues) {
+		all_font_num++;
+
+		if(this.isLoaded(name)) loaded_font_num++;
+	}
+
+	// avoid division by zero
+	if (all_font_num === 0) return 1;
+
+	return loaded_font_num / all_font_num;
 };
+
+FontLoader.prototype.setupEvents = function() {
+	var self = this;
+	if(self.canUseCssFontLoading()) {
+		// TODO: after all font loading, calling init method and adding same font loading can't fire ready event
+		window.document.fonts.ready.then(function(fonts){
+			self._isLoadedDone = true;
+			self._loadedFonts = fonts;
+		}).catch(function(error){
+			throw new Error("Can't load font.");
+		});
+	}
+	else if(self.canUseCssFont()) {
+		window.document.fonts.addEventListener('loadingdone', function() {
+			self._isLoadedDone = true;
+			self._loadedFonts  = null;
+		});
+	}
+	else {
+		self._isLoadedDone = true;
+		self._loadedFonts  = null;
+	}
+	};
+
+// check if it's enable to use document.fonts.ready
+var _canUseCssFontLoading = window.document && window.document.fonts && window.document.fonts.ready && document.fonts.ready.then;
+FontLoader.prototype.canUseCssFontLoading = function(){
+	return _canUseCssFontLoading;
+};
+
+// check if it's enable to use document.fonts's loadingdone event
+// Note: safari 10.0 has document.fonts but not occur loadingdone event
+FontLoader.prototype.canUseCssFont = function(){
+	return window.document && window.document.fonts && !this.isSafari10();
+};
+
+FontLoader.prototype.isSafari10 = function() {
+	return navigator.userAgent.toLowerCase().indexOf("safari") && navigator.userAgent.toLowerCase().indexOf("version/10.0");
+};
+
+FontLoader.prototype.isLoaded = function(name) {
+	if (!(name in this._fontStatues)) return false;
+
+	var status = this._fontStatues[name];
+
+	if (status.is_loaded) return true;
+
+	var is_loaded = this.checkFontLoaded(name);
+
+	if (is_loaded) {
+		status.is_loaded = true;
+	}
+
+	return is_loaded;
+};
+
+FontLoader.prototype.checkFontLoaded = function(name) {
+    if (this.canUseCssFontLoading()) {
+		return window.document.fonts.check('10px "'+name+'"');
+    } else {
+        if (!this._hiddenCanvas) {
+            this._hiddenCanvas = window.document.createElement('canvas');
+        }
+        var context = this._hiddenCanvas.getContext('2d');
+        var text = 'abcdefghijklmnopqrstuvwxyz';
+        var width1, width2;
+        context.font = '40px ' + name + ', sans-serif';
+        width1 = context.measureText(text).width;
+        context.font = '40px sans-serif';
+        width2 = context.measureText(text).width;
+        return width1 !== width2;
+    }
+};
+
+FontLoader.prototype.loadFont = function(name, url, format) {
+	if (!window.document) return false;
+
+	this._fontStatues[name] = {
+		is_loaded: false,
+	};
+
+	this._createFontFaceStyle(name, url, format);
+	this._createFontLoadingDOM(name);
+
+	return true;
+};
+
+FontLoader.prototype._createFontFaceStyle = function(name, url, format) {
+    var head = window.document.getElementsByTagName('head');
+
+	if (!head) {
+		throw new Error ("Fontloader class needs head tag in html file.");
+	}
+
+    var rule;
+	if (typeof format !== "undefined") {
+		rule = '@font-face { font-family: "' + name + '"; src: url("' + url + '") format("' + format + '"); }';
+	}
+	else {
+		rule = '@font-face { font-family: "' + name + '"; src: url("' + url + '"); }';
+	}
+
+    var style = window.document.createElement('style');
+    style.type = 'text/css';
+    head.item(0).appendChild(style);
+    style.sheet.insertRule(rule, 0);
+};
+
+// fonts set by @font-face is loaded by while using it.
+FontLoader.prototype._createFontLoadingDOM = function(name) {
+    var div = window.document.createElement('div');
+    var text = window.document.createTextNode('.');
+    div.style.fontFamily = name;
+    div.style.fontSize = '0px';
+    div.style.color = 'transparent';
+    div.style.position = 'absolute';
+    div.style.margin = 'auto';
+    div.style.top = '0px';
+    div.style.left = '0px';
+    div.style.width = '1px';
+    div.style.height = '1px';
+    div.appendChild(text);
+    window.document.body.appendChild(div);
+};
+
 
 
 
 
 module.exports = FontLoader;
 
-},{}],8:[function(require,module,exports){
+},{}],6:[function(require,module,exports){
 'use strict';
 
 var ImageLoader = function() {
@@ -327,7 +613,7 @@ var ImageLoader = function() {
 ImageLoader.prototype.init = function() {
 	// cancel already loading images
 	for(var name in this.images){
-		this.images[name].src = "";
+		this.images[name].image.src = "";
 	}
 
 	this.images = {};
@@ -336,7 +622,7 @@ ImageLoader.prototype.init = function() {
 	this.loaded_image_num = 0;
 };
 
-ImageLoader.prototype.loadImage = function(name, path) {
+ImageLoader.prototype.loadImage = function(name, path, scale_width, scale_height) {
 	var self = this;
 
 	self.loading_image_num++;
@@ -349,18 +635,43 @@ ImageLoader.prototype.loadImage = function(name, path) {
 	var image = new Image();
 	image.src = path;
 	image.onload = onload_function;
-	this.images[name] = image;
+	this.images[name] = {
+		scale_width: scale_width,
+		scale_height: scale_height,
+		image: image,
+	};
 };
 
 ImageLoader.prototype.isAllLoaded = function() {
 	return this.loaded_image_num === this.loading_image_num;
 };
-
-ImageLoader.prototype.getImage = function(name) {
-	return this.images[name];
+ImageLoader.prototype.isLoaded = function(name) {
+	return((name in this.images) ? true : false);
 };
 
+
+ImageLoader.prototype.getImage = function(name) {
+	if (!this.isLoaded(name)) throw new Error("Can't find image '" + name + "'.");
+
+	return this.images[name].image;
+};
+ImageLoader.prototype.getScaleWidth = function(name) {
+	if (!this.isLoaded(name)) throw new Error("Can't find image '" + name + "'.");
+
+	return this.images[name].scale_width;
+};
+ImageLoader.prototype.getScaleHeight = function(name) {
+	if (!this.isLoaded(name)) throw new Error("Can't find image '" + name + "'.");
+
+	return this.images[name].scale_height;
+};
+
+
+
 ImageLoader.prototype.progress = function() {
+	// avoid division by zero
+	if (this.loading_image_num === 0) return 1;
+
 	return this.loaded_image_num / this.loading_image_num;
 };
 
@@ -369,7 +680,7 @@ ImageLoader.prototype.progress = function() {
 
 module.exports = ImageLoader;
 
-},{}],9:[function(require,module,exports){
+},{}],7:[function(require,module,exports){
 'use strict';
 
 // only keyboard (because core class uses key board map)
@@ -386,7 +697,7 @@ var Constant = {
 
 module.exports = Constant;
 
-},{}],10:[function(require,module,exports){
+},{}],8:[function(require,module,exports){
 'use strict';
 
 var CONSTANT = {
@@ -418,19 +729,22 @@ CONSTANT.SPRITE3D.A_SIZE =
 
 module.exports = CONSTANT;
 
-},{}],11:[function(require,module,exports){
+},{}],9:[function(require,module,exports){
 'use strict';
 
-/* TODO: create input_manager class */
+/* TODO: create scene_manager class */
 
 var WebGLDebugUtils = require("webgl-debug");
-var CONSTANT = require("./constant");
-var DebugManager = require("./debug_manager");
-var InputManager = require("./input_manager");
+var Util = require("./util");
+var DebugManager = require("./manager/debug");
+var SceneManager = require("./manager/scene");
+var TimeManager = require("./manager/time");
+var SaveManager = require("./manager/save");
+var InputManager = require("./manager/input");
 var ImageLoader = require("./asset_loader/image");
 var AudioLoader = require("./asset_loader/audio");
 var FontLoader = require("./asset_loader/font");
-var SceneLoading = require('./scene/loading');
+var StorageScenario = require('./storage/scenario');
 
 var ShaderProgram = require('./shader_program');
 var VS = require("./shader/main.vs");
@@ -475,15 +789,16 @@ var Core = function(canvas, options) {
 	}
 
 	this.debug_manager = new DebugManager(this);
-
+	this.scene_manager = new SceneManager(this);
+	this.time_manager = new TimeManager(this);
+	this.save_manager = new SaveManager();
 	this.input_manager = new InputManager();
 
 	this.width = Number(canvas.getAttribute('width'));
 	this.height = Number(canvas.getAttribute('height'));
 
-	this.current_scene = null;
-	this._reserved_next_scene = null; // next scene which changes next frame run
-	this.scenes = {};
+	this._cursor_image_name = null;
+	this._default_cursor_image_name = null;
 
 	this.frame_count = 0;
 
@@ -492,25 +807,33 @@ var Core = function(canvas, options) {
 	this.image_loader = new ImageLoader();
 	this.audio_loader = new AudioLoader();
 	this.font_loader = new FontLoader();
+
+	// add default save
+	this.save_manager.addClass("scenario", StorageScenario);
 };
 Core.prototype.init = function () {
-	this.current_scene = null;
-	this._reserved_next_scene = null; // next scene which changes next frame run
-
 	this.frame_count = 0;
 
 	this.request_id = null;
 
+	this.debug_manager.init();
+	this.scene_manager.init();
+	this.time_manager.init();
 	// TODO:
-	//this.debug_manager.init();
+	//this.save_manager.init();
 	this.input_manager.init();
 
 	this.image_loader.init();
 	this.audio_loader.init();
 	this.font_loader.init();
 
-	this.addScene("loading", new SceneLoading(this));
+	this.save_manager.initialLoad();
 };
+
+Core.prototype.reload = function () {
+	this.init();
+};
+
 Core.prototype.isRunning = function () {
 	return this.request_id ? true : false;
 };
@@ -527,17 +850,24 @@ Core.prototype.stopRun = function () {
 	this.request_id = null;
 };
 Core.prototype.run = function(){
+	// update fps
+	this.debug_manager.beforeRun();
+
+	this.scene_manager.beforeRun();
 	// get gamepad input
 	// get pressed key time
 	this.input_manager.beforeRun();
 
-	// go to next scene if next scene is set
-	this.changeNextSceneIfReserved();
+	// play sound which already set to play
+	this.time_manager.executeEvents();
 
 	// play sound which already set to play
 	this.audio_loader.executePlaySound();
 
-	var current_scene = this.currentScene();
+	// change default cursor image
+	this.changeDefaultCursorImage();
+
+	var current_scene = this.scene_manager.currentScene();
 	if(current_scene) {
 		current_scene.beforeDraw();
 
@@ -545,64 +875,24 @@ Core.prototype.run = function(){
 		this.clearCanvas();
 
 		current_scene.draw();
+
 		current_scene.afterDraw();
+
+		// draw transtion
+		this.scene_manager.drawTransition();
+
+		// overwrite cursor image on scene
+		this._renderCursorImage();
 	}
-
-	/*
-
-	if(Config.DEBUG) {
-		this._renderFPS();
-	}
-
-	// play sound effects
-	this.runPlaySound();
-	*/
 
 	this.frame_count++;
 
+	this.debug_manager.afterRun();
 	this.input_manager.afterRun();
 
 	// tick
-	this.request_id = requestAnimationFrame(this.run.bind(this));
+	this.request_id = requestAnimationFrame(Util.bind(this.run, this));
 };
-Core.prototype.currentScene = function() {
-	if(this.current_scene === null) {
-		return;
-	}
-
-	return this.scenes[this.current_scene];
-};
-
-Core.prototype.addScene = function(name, scene) {
-	this.scenes[name] = scene;
-};
-Core.prototype.changeScene = function() {
-	var args = Array.prototype.slice.call(arguments); // to convert array object
-	this._reserved_next_scene = args;
-};
-Core.prototype.changeNextSceneIfReserved = function() {
-	if(this._reserved_next_scene) {
-		if (this.currentScene() && this.currentScene().isSetFadeOut() && !this.currentScene().isInFadeOut()) {
-			this.currentScene().startFadeOut();
-		}
-		else if (this.currentScene() && this.currentScene().isSetFadeOut() && this.currentScene().isInFadeOut()) {
-			// waiting for quiting fade out
-		}
-		else {
-			// change next scene
-			this.current_scene = this._reserved_next_scene.shift();
-			var current_scene = this.currentScene();
-			current_scene.init.apply(current_scene, this._reserved_next_scene);
-
-			this._reserved_next_scene = null;
-		}
-	}
-};
-Core.prototype.changeSceneWithLoading = function(scene, assets) {
-	if(!assets) assets = {};
-	this.changeScene("loading", assets, scene);
-};
-
 Core.prototype.clearCanvas = function() {
 	if (this.is2D()) {
 		// 2D
@@ -687,15 +977,18 @@ Core.prototype.fullscreen = function() {
 	}
 };
 
-// it is done to load fonts
-Core.prototype.fontLoadingDone = function() {
-	this.font_loader.notifyLoadingDone();
+Core.prototype.isAllLoaded = function() {
+	if (this.image_loader.isAllLoaded() && this.audio_loader.isAllLoaded() && this.font_loader.isAllLoaded()) {
+		return true;
+	}
+	return false;
 };
 
+
+
+// TODO: If destroy core instance, delete event handler, if do not, memory leak
 Core.prototype.setupEvents = function() {
 	if(!window) return;
-
-	var self = this;
 
 	// setup WebAudio
 	window.AudioContext = (function(){
@@ -710,18 +1003,89 @@ Core.prototype.setupEvents = function() {
 			function(callback) { window.setTimeout(callback, 1000 / 60); };
 	})();
 
+	this._setupError();
 
-	// If the browser has `document.fonts`, wait font loading.
-	// Note: safari 10.0 has document.fonts but not occur loadingdone event
-	if(window.document && window.document.fonts && !navigator.userAgent.toLowerCase().indexOf("safari")) {
-		window.document.fonts.addEventListener('loadingdone', function() { self.fontLoadingDone(); });
-	}
-	else {
-		self.fontLoadingDone();
-	}
+	this.font_loader.setupEvents();
 
 	this.input_manager.setupEvents(this.canvas_dom);
 };
+
+
+Core.prototype._setupError = function() {
+	/*
+	 * msg: error message
+	 * file: file path
+	 * line: row number
+	 * column: column number
+	 * err: error object
+	 */
+
+	var self = this;
+	window.onerror = function (msg, file, line, column, err) {
+		self.showError(msg, file, line, column, err);
+
+		// restart game at error point
+		//self.request_id = requestAnimationFrame(Util.bind(self.run, self));
+
+		// or
+
+		// restart game at first point
+		//self.init();
+		//self.startRun();
+	};
+};
+
+
+Core.prototype.showError = function(msg, file, line, column, err) {
+	this.clearCanvas();
+
+	if (this.is2D()) {
+		// TODO: create html dom and overlay it on canvas
+		var ctx = this.ctx;
+		var x = 24;
+		var y = 80;
+
+		ctx.save();
+		ctx.fillStyle = 'black';
+		ctx.fillRect(0, 0, this.width, this.height);
+		ctx.restore();
+
+		ctx.save();
+		ctx.fillStyle = "red";
+		ctx.font = "48px 'sans-serif'";
+		ctx.fillText('Error', x, y);
+
+		y+= 48;
+
+		ctx.fillStyle = "white";
+		ctx.font = "24px 'sans-serif'";
+
+		ctx.fillText(msg, x, y);
+		y+= 24 + 5;
+		ctx.fillText("Time: " + (new Date()).toString(), x, y);
+		y+= 24 + 5;
+		ctx.fillText("File: " + file, x, y);
+		y+= 24 + 5;
+		ctx.fillText("Line: " + line + ", Column:" + column, x, y);
+		y+= 24 + 5;
+		ctx.fillText("Stack Trace: ", x, y);
+		y+= 24 + 5;
+		x+= 24 + 5;
+		var stack = err.stack.split("\n");
+		for (var i = 0, len = stack.length; i < len; i++) {
+			var text = stack[i];
+			ctx.fillText(text, x, y);
+			y += 24 + 5;
+		}
+		ctx.restore();
+	}
+	else if (this.is3D()) {
+		// TODO: render canvas by WebGL
+		window.alert(msg + "\n" + line + ":" + column);
+	}
+};
+
+
 
 Core.prototype.createWebGLContext = function(canvas) {
 	var gl;
@@ -738,21 +1102,207 @@ Core.prototype.createWebGLContext = function(canvas) {
 	return gl;
 };
 
+Core.prototype.enableCursorImage = function(default_image_name) {
+	// disable to show browser default cursor
+	this.canvas_dom.style.cursor = "none";
 
+	this._default_cursor_image_name = default_image_name;
+};
 
+// use your own cursor image
+Core.prototype.isUsingCursorImage = function() {
+	return this._default_cursor_image_name ? true : false;
+};
+
+Core.prototype.changeCursorImage = function(image_name) {
+	this._cursor_image_name = image_name;
+};
+// change browser default cursor
+Core.prototype.disableCursorImage = function(image_name) {
+	if (!this.isUsingCursorImage()) return;
+
+	this.canvas_dom.style.cursor = "auto";
+	this._cursor_image_name = null;
+	this._default_cursor_image_name = null;
+};
+Core.prototype.changeDefaultCursorImage = function() {
+	if (!this.isUsingCursorImage()) return;
+	this._cursor_image_name = this._default_cursor_image_name;
+};
+Core.prototype._renderCursorImage = function () {
+	if (!this.isUsingCursorImage()) return;
+
+	// if it is in loading scene, not show cursor
+	if (!this.image_loader.isLoaded(this._cursor_image_name)) return;
+
+	var ctx = this.ctx;
+
+	if (!ctx) return;
+
+	ctx.save();
+
+	var cursor = this.image_loader.getImage(this._cursor_image_name);
+
+	var x = this.input_manager.mousePositionX();
+	var y = this.input_manager.mousePositionY();
+
+	var scale_width  = this.image_loader.getScaleWidth(this._cursor_image_name);
+	var scale_height = this.image_loader.getScaleHeight(this._cursor_image_name);
+	ctx.translate(x, y);
+	ctx.drawImage(cursor,
+		0,
+		0,
+		cursor.width*scale_width,
+		cursor.height*scale_height
+	);
+	ctx.restore();
+};
+
+Core.prototype.setTimeout = function (callback, frame_count) {
+	console.error("core's setTimeout method is deprecated.");
+	this.time_manager.setTimeout(callback, frame_count);
+};
+Core.prototype.currentScene = function() {
+	console.error("core's currentScene method is deprecated.");
+	return this.scene_manager.currentScene.apply(this.scene_manager, arguments);
+}
+Core.prototype.addScene = function(name, scene) {
+	console.error("core's addScene method is deprecated.");
+	return this.scene_manager.addScene.apply(this.scene_manager, arguments);
+};
+Core.prototype.changeScene = function(scene_name, varArgs) {
+	console.error("core's changeScene method is deprecated.");
+	return this.scene_manager.changeScene.apply(this.scene_manager, arguments);
+};
+Core.prototype.changeNextSceneIfReserved = function() {
+	console.error("core's changeNextSceneIfReserved method is deprecated.");
+	return this.scene_manager.changeNextSceneIfReserved.apply(this.scene_manager, arguments);
+};
+Core.prototype.changeSceneWithLoading = function(scene, assets) {
+	console.error("core's changeSceneWithLoading method is deprecated.");
+	return this.scene_manager.changeSceneWithLoading.apply(this.scene_manager, arguments);
+};
 
 module.exports = Core;
 
-},{"./asset_loader/audio":6,"./asset_loader/font":7,"./asset_loader/image":8,"./constant":9,"./debug_manager":12,"./input_manager":14,"./scene/loading":33,"./shader/main.fs":35,"./shader/main.vs":36,"./shader_program":37,"webgl-debug":25}],12:[function(require,module,exports){
+},{"./asset_loader/audio":4,"./asset_loader/font":5,"./asset_loader/image":6,"./manager/debug":11,"./manager/input":12,"./manager/save":13,"./manager/scene":15,"./manager/time":17,"./shader/main.fs":47,"./shader/main.vs":48,"./shader_program":49,"./storage/scenario":52,"./util":53,"webgl-debug":30}],10:[function(require,module,exports){
 'use strict';
+var Hakurei = {
+	// deprecated namespaces
+	util: require("./util"),
+	core: require("./core"),
+	shader_program: require("./shader_program"),
+	constant: require("./util").assign(require("./constant/button"), {
+		button: require("./constant/button"),
+	}),
+	serif_manager: require("./manager/scenario"),
+	save_manager: require("./manager/save"),
+	manager: {
+		save: require("./manager/save"),
+		scenario: require("./manager/scenario"),
+	},
+	scene: {
+		base:    require("./scene/base"),
+		loading: require("./scene/loading"),
+		movie:   require("./scene/movie"),
+	},
+	object: {
+		base: require("./object/base"),
+		point: require("./object/point"),
+		sprite: require("./object/sprite"),
+		sprite3d: require("./object/sprite3d"),
+		pool_manager: require("./object/pool_manager"),
+		pool_manager3d: require("./object/pool_manager3d"),
+		ui_parts: require("./object/ui_parts"),
+	},
+	asset_loader: {
+		image: require("./asset_loader/image"),
+		audio: require("./asset_loader/audio"),
+		font:  require("./asset_loader/font"),
+	},
+	storage: {
+		base: require("./storage/base"),
+		save: require("./storage/save"),
+	},
+
+	// recommended namespaces
+	Util: require("./util"),
+	Core: require("./core"),
+	ShaderProgram: require("./shader_program"),
+	Constant: {
+		Button: require("./constant/button"),
+	},
+	Manager: {
+		Save: require("./manager/save"),
+		Scenario: require("./manager/scenario"),
+	},
+	Scene: {
+		Base:    require("./scene/base"),
+		Loading: require("./scene/loading"),
+		Movie:   require("./scene/movie"),
+	},
+	Object: {
+		Base: require("./object/base"),
+		Point: require("./object/point"),
+		Sprite: require("./object/sprite"),
+		Sprite3d: require("./object/sprite3d"),
+		PoolManager: require("./object/pool_manager"),
+		PoolManager3d: require("./object/pool_manager3d"),
+		UIParts: require("./object/ui_parts"),
+		UI: {
+			Base:            require("./object/ui/base"),
+			Text:            require("./object/ui/text"),
+			Spinner:         require("./object/ui/spinner"),
+			Group:           require("./object/ui/group"),
+			Image:           require("./object/ui/image"),
+		},
+	},
+	AssetLoader: {
+		Image: require("./asset_loader/image"),
+		Audio: require("./asset_loader/audio"),
+		Font:  require("./asset_loader/font"),
+	},
+	Storage: {
+		Base: require("./storage/base"),
+		Save: require("./storage/save"),
+	},
+	Master: {
+		RepositoryGenerator: require("./master/repository_generator"),
+	},
+
+};
+module.exports = Hakurei;
+
+},{"./asset_loader/audio":4,"./asset_loader/font":5,"./asset_loader/image":6,"./constant/button":7,"./core":9,"./manager/save":13,"./manager/scenario":14,"./master/repository_generator":19,"./object/base":32,"./object/point":33,"./object/pool_manager":34,"./object/pool_manager3d":35,"./object/sprite":36,"./object/sprite3d":37,"./object/ui/base":38,"./object/ui/group":39,"./object/ui/image":40,"./object/ui/spinner":41,"./object/ui/text":42,"./object/ui_parts":43,"./scene/base":44,"./scene/loading":45,"./scene/movie":46,"./shader_program":49,"./storage/base":50,"./storage/save":51,"./util":53}],11:[function(require,module,exports){
+'use strict';
+var Util = require("../util");
+
+// per frame
+var FPS_CALCULATION_INTERVAL = 60;
 
 var DebugManager = function (core) {
 	this.core = core;
 	this.dom = null; // debug menu area
 
 	this.is_debug_mode = false; // default: false
-};
 
+
+	this._is_showing_collision_area = false; // default: false
+
+	this._is_showing_fps = false; // default: false
+
+	this._variables = {};
+
+	// Time when FPS was calculated last time(millisecond)
+	this._before_time = 0;
+
+	// calculated current fps
+	this._fps = 0;
+};
+DebugManager.prototype.init = function () {
+	this._before_time = 0;
+	this._fps = 0;
+};
 DebugManager.prototype.setOn = function (dom) {
 	this.is_debug_mode = true;
 	this.dom = dom;
@@ -760,6 +1310,51 @@ DebugManager.prototype.setOn = function (dom) {
 DebugManager.prototype.setOff = function () {
 	this.is_debug_mode = false;
 	this.dom = null;
+};
+
+DebugManager.prototype.set = function (name, value) {
+	if(!this.is_debug_mode) return;
+
+	this._variables[name] = value;
+};
+DebugManager.prototype.get = function (name) {
+	if(!this.is_debug_mode) return null;
+
+	return this._variables[name];
+};
+
+DebugManager.prototype.beforeRun = function () {
+	if(this.isShowingFps()) {
+		this._calculateFps();
+	}
+};
+
+DebugManager.prototype._calculateFps = function () {
+	if((this.core.frame_count % FPS_CALCULATION_INTERVAL) !== 0) return;
+
+	var newTime = Date.now();
+
+	if(this._before_time) {
+		this._fps = Math.floor(1000 * FPS_CALCULATION_INTERVAL / (newTime - this._before_time));
+	}
+
+	this._before_time = newTime;
+};
+
+DebugManager.prototype.afterRun = function () {
+	if(this.isShowingFps()) {
+		this._renderFps();
+	}
+};
+
+DebugManager.prototype._renderFps = function () {
+	var ctx = this.core.ctx;
+	ctx.save();
+	ctx.fillStyle = 'red';
+	ctx.textAlign = 'left';
+	ctx.font = "16px 'sans-serif'";
+	ctx.fillText("FPS: " + this._fps, this.core.width - 70, this.core.height - 10);
+	ctx.restore();
 };
 
 // add text menu
@@ -773,6 +1368,29 @@ DebugManager.prototype.addMenuText = function (text) {
 	// add element
 	this.dom.appendChild(dom);
 };
+// add <br> tag
+DebugManager.prototype.addNewLine = function () {
+	if(!this.is_debug_mode) return;
+
+	// create element
+	var dom = window.document.createElement('br');
+
+	// add element
+	this.dom.appendChild(dom);
+};
+
+// add image
+DebugManager.prototype.addMenuImage = function (image_path) {
+	if(!this.is_debug_mode) return;
+
+	// create element
+	var dom = window.document.createElement('img');
+	dom.src = image_path;
+
+	// add element
+	this.dom.appendChild(dom);
+};
+
 
 // add button menu
 DebugManager.prototype.addMenuButton = function (button_value, func) {
@@ -794,45 +1412,215 @@ DebugManager.prototype.addMenuButton = function (button_value, func) {
 	this.dom.appendChild(input);
 };
 
-module.exports = DebugManager;
+// add select pull down menu
+DebugManager.prototype.addMenuSelect = function (button_value, pulldown_list, func) {
+	if(!this.is_debug_mode) return;
 
-},{}],13:[function(require,module,exports){
-'use strict';
-module.exports = {
-	util: require("./util"),
-	core: require("./core"),
-	constant: require("./constant"),
-	serif_manager: require("./serif_manager"),
-	shader_program: require("./shader_program"),
-	scene: {
-		base: require("./scene/base"),
-		loading: require("./scene/loading"),
-	},
-	object: {
-		base: require("./object/base"),
-		sprite: require("./object/sprite"),
-		sprite3d: require("./object/sprite3d"),
-		pool_manager: require("./object/pool_manager"),
-		pool_manager3d: require("./object/pool_manager3d"),
-		ui_parts: require("./object/ui_parts"),
-	},
-	asset_loader: {
-		image: require("./asset_loader/image"),
-		audio: require("./asset_loader/audio"),
-		font:  require("./asset_loader/font"),
-	},
-	storage: {
-		base: require("./storage/base"),
-		save: require("./storage/save"),
-	},
+	var core = this.core;
 
+	// select tag
+	var select = window.document.createElement("select");
+
+	// label
+	var option_label = document.createElement("option");
+	option_label.setAttribute("value", "");
+	option_label.appendChild(document.createTextNode(button_value));
+	select.appendChild(option_label);
+
+	// add event
+	select.onchange = function () {
+		if(select.value === "") return;
+		func(core, select.value);
+	};
+
+	// set attributes
+	for (var i = 0, len = pulldown_list.length; i < len; i++) {
+		var opt = pulldown_list[i];
+		var value = opt.value;
+		var name = name in opt ? opt.name : value;
+
+		var option = document.createElement("option");
+		option.setAttribute("value", value);
+		option.appendChild( document.createTextNode(name) );
+		select.appendChild(option);
+	}
+
+	// add element
+	this.dom.appendChild(select);
 };
 
-},{"./asset_loader/audio":6,"./asset_loader/font":7,"./asset_loader/image":8,"./constant":9,"./core":11,"./object/base":26,"./object/pool_manager":27,"./object/pool_manager3d":28,"./object/sprite":29,"./object/sprite3d":30,"./object/ui_parts":31,"./scene/base":32,"./scene/loading":33,"./serif_manager":34,"./shader_program":37,"./storage/base":38,"./storage/save":39,"./util":40}],14:[function(require,module,exports){
+DebugManager.prototype.addGitLatestCommitInfo = function (user_name, repo_name, branch) {
+	if(!this.is_debug_mode) return;
+
+	branch = branch || "master";
+
+	// create element
+	var dom = window.document.createElement('pre');
+
+	// add element
+	this.dom.appendChild(dom);
+
+	var git_api_url = "https://api.github.com/repos/" + user_name + "/" + repo_name + "/branches/" + branch;
+
+	// fetch git info
+	var xhr = new XMLHttpRequest();
+	xhr.onload = function() {
+		if(xhr.status !== 200) {
+			return;
+		}
+
+		var json_text = xhr.response;
+
+		var json;
+		if (json_text) {
+			json = JSON.parse(json_text);
+		}
+		else {
+			throw new Error("Can't parse git lastest commit info");
+		}
+
+		dom.textContent =
+			//"sha: " + json.commit.sha + "\n" +
+			//"author: " + json.commit.commit.author.name + "\n" +
+			"last update date: " + (new Date(json.commit.commit.author.date)) + "\n" +
+			//"message: " + json.commit.commit.message + "\n" +
+			""
+		;
+	};
+
+	xhr.open('GET', git_api_url, true);
+	xhr.send(null);
+};
+
+// TODO: decide where to move this function
+var base64toBlob = function(base64) {
+	var tmp = base64.split(',');
+	var data = atob(tmp[1]);
+	var mime = tmp[0].split(':')[1].split(';')[0];
+	var buf = new Uint8Array(data.length);
+	for (var i = 0; i < data.length; i++) {
+		buf[i] = data.charCodeAt(i);
+	}
+	// blobデータを作成
+	var blob = new Blob([buf], { type: mime });
+	return blob;
+};
+
+DebugManager.prototype.addCaputureImageButton = function (button_value, filename) {
+	if(!this.is_debug_mode) return;
+
+	var canvas_dom = this.core.canvas_dom;
+
+	this.addMenuButton(button_value, function () {
+		var current_filename = filename;
+
+		// default filename is unixtime
+		if(typeof filename === "undefined") {
+			var date = new Date();
+			current_filename = Math.floor(date.getTime() / 1000);
+		}
+
+		var base64 = canvas_dom.toDataURL("image/png");
+
+		var blob = base64toBlob(base64);
+		Util.downloadBlob(blob, current_filename + ".png");
+	});
+};
+
+var READ_TYPE_TO_FILEREADER_FUNCTION_NAME = {
+	array_buffer: "readAsArrayBuffer",
+	binary_string: "readAsBinaryString",
+	text: "readAsText",
+	data_url: "readAsDataURL",
+};
+
+
+// add upload button
+DebugManager.prototype.addUploadFileButton = function (value, func, read_type) {
+	if(!this.is_debug_mode) return;
+
+	if(typeof read_type === "undefined") read_type = "array_buffer";
+
+	if(!READ_TYPE_TO_FILEREADER_FUNCTION_NAME[read_type]) throw new Error("Unknown read_type: " + read_type);
+
+	// add text
+	var dom = window.document.createElement('pre');
+	dom.style.display = "inline"; // unable to insert br
+	dom.textContent = value;
+	this.dom.appendChild(dom);
+
+	// create element
+	var input = window.document.createElement('input');
+
+	// set attributes
+	input.setAttribute('type', 'file');
+
+	var reader_func_name = READ_TYPE_TO_FILEREADER_FUNCTION_NAME[read_type];
+	var core = this.core;
+
+	input.onchange = function (e) {
+		if(!input.value) return;
+
+
+		var file = e.target.files[0]; // FileList object
+		var reader = new FileReader();
+		var type = file.type;
+
+		reader.onload = function (e) {
+			var result = e.target.result;
+			func(core, type, result);
+		};
+
+		reader[reader_func_name](file);
+	};
+
+	// occur onchange event if same file is set
+	input.onclick = function (e) {
+		input.value = null;
+	};
+
+	// add element
+	this.dom.appendChild(input);
+};
+
+
+
+// show collision area of object instance
+DebugManager.prototype.setShowingCollisionAreaOn = function () {
+	if(!this.is_debug_mode) return null;
+	this._is_showing_collision_area = true;
+};
+DebugManager.prototype.setShowingCollisionAreaOff = function () {
+	if(!this.is_debug_mode) return null;
+	this._is_showing_collision_area = false;
+};
+DebugManager.prototype.isShowingCollisionArea = function () {
+	if(!this.is_debug_mode) return false;
+	return this._is_showing_collision_area;
+};
+
+// show fps
+DebugManager.prototype.setShowingFpsOn = function () {
+	if(!this.is_debug_mode) return null;
+	this._is_showing_fps = true;
+};
+DebugManager.prototype.setShowingFpsOff = function () {
+	if(!this.is_debug_mode) return null;
+	this._is_showing_fps = false;
+};
+DebugManager.prototype.isShowingFps = function () {
+	if(!this.is_debug_mode) return false;
+	return this._is_showing_fps;
+};
+
+module.exports = DebugManager;
+
+},{"../util":53}],12:[function(require,module,exports){
 'use strict';
 
-var CONSTANT = require("./constant");
-var Util = require("./util");
+var CONSTANT = require("../constant/button");
+var Util = require("../util");
+var ObjectPoint = require("../object/point");
 
 // const
 var DEFAULT_BUTTON_ID_TO_BIT_CODE = {
@@ -860,7 +1648,7 @@ var InputManager = function () {
 	this.mouse_y = 0;
 	this.mouse_scroll = 0;
 
-	this.is_connect_gamepad = false;
+	this._is_gamepad_usable = false;
 };
 
 InputManager.prototype.init = function () {
@@ -880,11 +1668,6 @@ InputManager.prototype.init = function () {
 	this.mouse_x = 0;
 	this.mouse_y = 0;
 	this.mouse_scroll = 0;
-
-	this.is_connect_gamepad = false;
-};
-InputManager.prototype.enableGamePad = function () {
-	this.is_connect_gamepad = true;
 };
 InputManager.prototype.beforeRun = function(){
 	// get gamepad input
@@ -966,11 +1749,33 @@ InputManager.prototype.isRightClickPush = function() {
 InputManager.prototype.handleMouseMove = function (d) {
 	d = d ? d : window.event;
 	d.preventDefault();
-	this.mouse_change_x = this.mouse_x - d.clientX;
-	this.mouse_change_y = this.mouse_y - d.clientY;
-	this.mouse_x = d.clientX;
-	this.mouse_y = d.clientY;
+
+	// get absolute coordinate position of canvas and adjust click position
+	// because clientX and clientY return the position from the document.
+	var rect = d.target.getBoundingClientRect();
+
+	var x = d.clientX - rect.left;
+	var y = d.clientY - rect.top;
+
+	this.mouse_change_x = this.mouse_x - x;
+	this.mouse_change_y = this.mouse_y - y;
+	this.mouse_x = x;
+	this.mouse_y = y;
 };
+
+InputManager.prototype.mousePositionPoint = function (scene) {
+	var x = this.mousePositionX();
+	var y = this.mousePositionY();
+
+	var point = new ObjectPoint(scene);
+	point.init();
+	point.setPosition(x, y);
+
+
+	return point;
+};
+
+
 InputManager.prototype.mousePositionX = function () {
 	return this.mouse_x;
 };
@@ -989,6 +1794,30 @@ InputManager.prototype.handleMouseWheel = function (event) {
 InputManager.prototype.mouseScroll = function () {
 	return this.mouse_scroll;
 };
+InputManager.prototype.handleTouchDown = function(event) {
+	// treat as mouse event
+	this.is_left_clicked = true;
+	event.preventDefault();
+};
+InputManager.prototype.handleTouchUp = function(event) {
+	// treat as mouse event
+	this.is_left_clicked = false;
+	event.preventDefault();
+};
+InputManager.prototype.handleTouchMove = function (event) {
+	event.preventDefault();
+
+	var x = event.touches[0].clientX;
+	var y = event.touches[0].clientY;
+
+	this.mouse_change_x = this.mouse_x - x;
+	this.mouse_change_y = this.mouse_y - y;
+	this.mouse_x = x;
+	this.mouse_y = y;
+};
+
+
+
 InputManager.prototype._keyCodeToBitCode = function(keyCode) {
 	var flag;
 	switch(keyCode) {
@@ -1020,7 +1849,7 @@ InputManager.prototype._keyCodeToBitCode = function(keyCode) {
 	return flag;
 };
 InputManager.prototype.handleGamePad = function() {
-	if(!this.is_connect_gamepad) return;
+	if(!this._is_gamepad_usable) return;
 	var pads = window.navigator.getGamepads();
 	var pad = pads[0]; // 1Pコン
 
@@ -1097,6 +1926,15 @@ InputManager.prototype.setupEvents = function(canvas_dom) {
 	// bind mouse move
 	canvas_dom.onmousemove = function(d) { self.handleMouseMove(d); };
 
+	// bind touch
+	canvas_dom.ontouchstart = function(e) { self.handleTouchDown(e); };
+	canvas_dom.ontouchend   = function(e) { self.handleTouchUp(e); };
+
+	// bind touch move
+	canvas_dom.ontouchmove = function(d) { self.handleTouchMove(d); };
+
+
+
 	// bind mouse wheel
 	var mousewheelevent = (window.navi && /Firefox/i.test(window.navigator.userAgent)) ? "DOMMouseScroll" : "mousewheel";
 	if (canvas_dom.addEventListener) { //WC3 browsers
@@ -1107,12 +1945,11 @@ InputManager.prototype.setupEvents = function(canvas_dom) {
 	}
 
 	// unable to use right click menu.
-	// NOTE: not used
-	// this.canvas_dom.oncontextmenu = function() { return false; };
+	canvas_dom.oncontextmenu = function() { return false; };
 
 	// bind gamepad
 	if(window.Gamepad && window.navigator && window.navigator.getGamepads) {
-		self.enableGamePad();
+		self._is_gamepad_usable = true;
 	}
 };
 
@@ -1125,7 +1962,7 @@ InputManager.prototype.getKeyByButtonId = function(button_id) {
 
 // get one of the pressed button id
 InputManager.prototype.getAnyButtonId = function(){
-	if(!this.is_connect_gamepad) return;
+	if(!this._is_gamepad_usable) return;
 
 	var pads = window.navigator.getGamepads();
 	var pad = pads[0]; // 1Pコン
@@ -1225,7 +2062,937 @@ InputManager.prototype.dumpGamePadKey = function() {
 
 module.exports = InputManager;
 
-},{"./constant":9,"./util":40}],15:[function(require,module,exports){
+},{"../constant/button":7,"../object/point":33,"../util":53}],13:[function(require,module,exports){
+'use strict';
+// repository for storage save class
+
+//var Util = require("../util");
+var SaveManager = function () {
+	this._name_to_class = {};
+};
+
+// klass must inherited save/base class
+SaveManager.prototype.addClass = function(name, klass){
+	if(typeof this[name] !== "undefined") throw new Error(name + " is reserved word.");
+
+	this._name_to_class[name] = klass;
+};
+
+SaveManager.prototype.initialLoad = function(){
+	for (var name in this._name_to_class) {
+		var Klass = this._name_to_class[name];
+
+		if(!this[name]) {
+			this[name] = Klass.load();
+		}
+	}
+};
+
+
+
+SaveManager.prototype.load = function(){
+	for (var name in this._name_to_class) {
+		var Klass = this._name_to_class[name];
+		this[name] = Klass.load();
+	}
+};
+
+SaveManager.prototype.save = function(){
+	for (var name in this._name_to_class) {
+		this[name].save();
+	}
+};
+
+SaveManager.prototype.reload = function(){
+	for (var name in this._name_to_class) {
+		this[name].reload();
+	}
+};
+
+
+
+SaveManager.prototype.del = function(){
+	for (var name in this._name_to_class) {
+		this[name].del();
+	}
+};
+
+module.exports = SaveManager;
+
+},{}],14:[function(require,module,exports){
+'use strict';
+
+// TODO: add _isStartPrintLetter, isPausePrintLetter method
+
+// default typography speed
+var TYPOGRAPHY_SPEED = 10;
+// default chara position
+var POSITION = 0;
+
+var Util = require("../util");
+var BaseClass = require("./serif_abolished_notifier_base");
+
+var ScenarioManager = function (core, option) {
+	this.core = core;
+
+	option = option || {};
+	this._typography_speed      = "typography_speed" in option ? option.typography_speed : TYPOGRAPHY_SPEED;
+	this._criteria_function_map = "criteria"         in option ? option.criteria : {};
+
+	// event handler
+	this._event_to_callback = {
+		printend: function () {},
+	};
+
+	this._timeoutID = null;
+
+	// serif scenario
+	this._script = null;
+
+	// where serif has progressed
+	this._progress = null;
+
+	// chara
+	this._current_talking_pos  = null; // which chara is talking
+	this._pos_to_chara_id_map = {};
+	this._pos_to_exp_id_map = {};
+
+	// background
+	this._is_background_changed = false;
+	this._current_bg_image_name  = null;
+
+	// junction
+	this._current_junction_list = [];
+
+	// option
+	this._current_option = {};
+
+	// letter data to print
+	this._current_message_letter_list = [];
+	this._current_message_sentenses_num = null;
+	this._current_message_max_length_letters = null;
+
+	// current printed sentences
+	this._letter_idx = 0;
+	this._sentences_line_num = 0;
+	this._current_printed_sentences = [];
+};
+Util.inherit(ScenarioManager, BaseClass);
+
+ScenarioManager.prototype.init = function (script) {
+	if(!script) throw new Error("set script arguments to use scenario_manager class");
+
+	if (this._timeoutID) this._stopPrintLetter();
+
+	this._script = script.slice(); // shallow copy
+
+	this._progress = -1;
+
+	// chara
+	this._current_talking_pos  = null;
+	this._pos_to_chara_id_map = {};
+	this._pos_to_exp_id_map = {};
+
+	// background
+	this._is_background_changed = false;
+	this._current_bg_image_name  = null;
+
+	// junction
+	this._current_junction_list = [];
+
+	// option
+	this._current_option = {};
+
+	// letter data to print
+	this._current_message_letter_list = [];
+	this._current_message_sentenses_num = null;
+	this._current_message_max_length_letters = null;
+
+	// current printed sentences
+	this._letter_idx = 0;
+	this._sentences_line_num = 0;
+	this._current_printed_sentences = [];
+};
+ScenarioManager.prototype.on = function (event, callback) {
+	this._event_to_callback[event] = callback;
+
+	return this;
+};
+ScenarioManager.prototype.removeEvent = function (event) {
+	this._event_to_callback[event] = function(){};
+
+	return this;
+};
+
+
+
+
+ScenarioManager.prototype.start = function (progress) {
+	if(!this._script) throw new Error("start method must be called after instance was initialized.");
+
+	if (this.isEnd()) return;
+
+	this._progress = progress || 0;
+
+	this._chooseNextSerifScript();
+
+	this._setupCurrentSerifScript();
+};
+
+
+ScenarioManager.prototype.next = function (choice) {
+	// chosen serif junction
+	choice = choice || 0;
+
+	if (this.isEnd()) return false;
+
+	this._progress++;
+
+	this._chooseNextSerifScript(choice);
+
+	this._setupCurrentSerifScript();
+
+	return true;
+};
+ScenarioManager.prototype._chooseNextSerifScript = function (choice) {
+	var script = this._script[this._progress];
+
+	var type = script.type || "serif";
+
+	var chosen_serifs;
+	if (type === "serif") {
+		// do nothing
+	}
+	else if (type === "junction_serif") {
+		chosen_serifs = script.serifs[choice];
+		if(!chosen_serifs) throw new Error("chosen junction index '" + choice + "' does not exists in next serifs array");
+
+		// delete current script and insert new chosen serif list
+		Array.prototype.splice.apply(this._script, [this._progress, 1].concat(chosen_serifs));
+	}
+	else if (type === "criteria_serif") {
+		var criteria_name = script.criteria;
+		var argument_list = script.arguments;
+		choice = this._execCriteriaFunction(criteria_name, argument_list);
+		chosen_serifs = script.serifs[choice];
+
+		if (!chosen_serifs) throw new Error ("choisen criteria index '" + choice + "' does not exists");
+
+		// delete current script and insert new chosen serif list
+		Array.prototype.splice.apply(this._script, [this._progress, 1].concat(chosen_serifs));
+
+		// check criteria recursively
+		this._chooseNextSerifScript();
+	}
+	else {
+		throw new Error("Unknown serif script type: " + type);
+	}
+};
+
+ScenarioManager.prototype._execCriteriaFunction = function (criteria_name, argument_list) {
+	var criteria_function = this._criteria_function_map[criteria_name];
+
+	if(!criteria_function) throw new Error(criteria_name + " criteria does not exists");
+
+	return criteria_function.apply({}, [this.core].concat(argument_list));
+};
+
+
+
+ScenarioManager.prototype.isStart = function () {
+	return this._progress > -1;
+};
+ScenarioManager.prototype.isEnd = function () {
+	return this._progress === this._script.length - 1;
+};
+
+
+
+ScenarioManager.prototype.isPrintLetterEnd = function () {
+	var letter_length = this._current_message_letter_list.length;
+	return this._letter_idx >= letter_length ? true : false;
+};
+
+
+ScenarioManager.prototype._setupCurrentSerifScript = function () {
+	var script = this._script[this._progress];
+
+	this._setupChara(script);
+	this._setupBackground(script);
+	this._setupJunction(script);
+	this._setupOption(script);
+
+	this._saveSerifPlayed(script);
+
+	if(typeof script.serif === "string") {
+		this._setupSerif(script);
+	}
+	else {
+		// If serif is empty, show chara without talking and next
+		if(!this.isEnd()) {
+			this.next();
+		}
+	}
+};
+ScenarioManager.prototype._setupChara = function(script) {
+	var pos   = script.pos;
+	var chara = script.chara;
+	var exp   = script.exp;
+
+	if (!pos) pos = POSITION;
+
+	this._current_talking_pos  = pos;
+	this._pos_to_chara_id_map[this._current_talking_pos] = chara;
+	this._pos_to_exp_id_map[this._current_talking_pos]   = exp;
+};
+
+ScenarioManager.prototype._setupBackground = function(script) {
+	var background = script.background;
+
+	this._is_background_changed = false;
+
+	if(background && this._current_bg_image_name !== background) {
+		this._is_background_changed = true;
+		this._current_bg_image_name  = background;
+	}
+};
+
+ScenarioManager.prototype._setupJunction = function(script) {
+	var junction_list = script.junction;
+	this._current_junction_list = junction_list || [];
+};
+
+ScenarioManager.prototype._setupOption = function(script) {
+	this._current_option = script.option || {};
+};
+
+ScenarioManager.prototype._saveSerifPlayed = function(script) {
+	var id = script.id;
+	var is_save = script.save;
+
+	if (!is_save) return;
+
+	if (typeof id === "undefined") throw new Error("script save property needs id property");
+
+	this.core.save_manager.scenario.incrementPlayedCount(id);
+};
+
+
+ScenarioManager.prototype._setupSerif = function (script) {
+	var message = script.serif;
+
+	// cancel already started message
+	this._stopPrintLetter();
+
+	// setup letter data to print
+	this._current_message_letter_list = message.split("");
+
+	var sentences = message.split("\n");
+
+	// count max length of sentence
+	this._current_message_max_length_letters = 0;
+	for (var i = 0, len = sentences.length; i < len; i++) {
+		if(this._current_message_max_length_letters < sentences[i].length) {
+			this._current_message_max_length_letters = sentences[i].length;
+		}
+	}
+
+	// count newline of current message
+	this._current_message_sentenses_num = sentences.length;
+
+	// clear current printed sentences
+	this._letter_idx = 0;
+	this._sentences_line_num = 0;
+	this._current_printed_sentences = [];
+
+	// start message
+	this._startPrintLetter();
+};
+ScenarioManager.prototype._startPrintLetter = function () {
+	this._printLetter();
+
+	if (!this.isPrintLetterEnd()) {
+		this._timeoutID = setTimeout(Util.bind(this._startPrintLetter, this), this._typography_speed);
+	}
+	else {
+		this._timeoutID = null;
+	}
+};
+
+ScenarioManager.prototype._stopPrintLetter = function () {
+	if(this._timeoutID !== null) {
+		clearTimeout(this._timeoutID);
+		this._timeoutID = null;
+	}
+};
+
+ScenarioManager.prototype._printLetter = function () {
+	if (this.isPrintLetterEnd()) return;
+
+	var current_message_letter_list = this._current_message_letter_list;
+
+	// get A letter to add
+	var letter = current_message_letter_list[this._letter_idx++];
+
+	// initialize if needed
+	if(!this._current_printed_sentences[this._sentences_line_num]) {
+		this._current_printed_sentences[this._sentences_line_num] = "";
+	}
+
+	if (letter === "\n") {
+		this._sentences_line_num++;
+	}
+	else {
+		// print A letter
+		this._current_printed_sentences[this._sentences_line_num] += letter;
+	}
+	// If printing has finished, call printend callback.
+	if (this.isPrintLetterEnd()) {
+		this._event_to_callback.printend();
+	}
+};
+
+ScenarioManager.prototype.resumePrintLetter = function () {
+	this._startPrintLetter();
+};
+ScenarioManager.prototype.pausePrintLetter = function () {
+	this._stopPrintLetter();
+};
+
+ScenarioManager.prototype.getCurrentPrintedSentences = function () {
+	return this._current_printed_sentences;
+};
+
+ScenarioManager.prototype.getCurrentSentenceNum = function () {
+	return this._current_message_sentenses_num;
+};
+
+ScenarioManager.prototype.getCurrentMaxLengthLetters = function () {
+	return this._current_message_max_length_letters;
+};
+
+ScenarioManager.prototype.isBackgroundChanged = function () {
+	return this._is_background_changed;
+};
+
+ScenarioManager.prototype.getCurrentBackgroundImageName = function () {
+	return this._current_bg_image_name;
+};
+
+ScenarioManager.prototype.getCurrentOption = function () {
+	return this._current_option;
+};
+
+ScenarioManager.prototype.getCurrentCharaNameByPosition = function (pos) {
+	pos = pos || POSITION;
+	return this._pos_to_chara_id_map[pos];
+};
+
+ScenarioManager.prototype.getCurrentCharaExpressionByPosition = function (pos) {
+	pos = pos || POSITION;
+	return this._pos_to_exp_id_map[pos];
+};
+
+ScenarioManager.prototype.isCurrentTalkingByPosition = function (pos) {
+	return this._current_talking_pos === pos;
+};
+
+ScenarioManager.prototype.isCurrentSerifExistsJunction = function () {
+	return this._current_junction_list.length > 0;
+};
+
+ScenarioManager.prototype.getCurrentJunctionList = function () {
+	return this._current_junction_list;
+};
+
+
+
+
+module.exports = ScenarioManager;
+
+},{"../util":53,"./serif_abolished_notifier_base":16}],15:[function(require,module,exports){
+'use strict';
+
+var SceneLoading = require('../scene/loading');
+
+var SceneManager = function (core) {
+	this.core = core;
+
+	this._current_scene = null;
+	// next scene which changes next frame run
+	this._reserved_next_scene_name_and_arguments = null;
+	this._is_reserved_next_scene_init = true; // is scene will inited?
+
+	this._scenes = {};
+
+	// property for fade in
+	this._fade_in_duration = null;
+	this._fade_in_color = null;
+	this._fade_in_start_frame_count = null;
+
+	// property for fade out
+	this._fade_out_duration = null;
+	this._fade_out_color = null;
+	this._fade_out_start_frame_count = null;
+
+	// add default scene
+	this.addScene("loading", new SceneLoading(core));
+};
+SceneManager.prototype.init = function () {
+	this._current_scene = null;
+	// next scene which changes next frame run
+	this._reserved_next_scene_name_and_arguments = null;
+	this._is_reserved_next_scene_init = true; // is scene will inited?
+
+	// property for fade in
+	this._fade_in_duration = null;
+	this._fade_in_color = null;
+	this._fade_in_start_frame_count = null;
+
+	// property for fade out
+	this._fade_out_duration = null;
+	this._fade_out_color = null;
+	this._fade_out_start_frame_count = null;
+};
+
+SceneManager.prototype.beforeRun = function () {
+	// go to next scene if next scene is set
+	this._changeNextSceneIfReserved();
+};
+
+SceneManager.prototype.currentScene = function() {
+	if(this._current_scene === null) {
+		return null;
+	}
+
+	return this._scenes[this._current_scene];
+};
+
+SceneManager.prototype.addScene = function(name, scene) {
+	this._scenes[name] = scene;
+};
+
+SceneManager.prototype.changeScene = function(scene_name, varArgs) {
+	if(!(scene_name in this._scenes)) throw new Error (scene_name + " scene doesn't exists.");
+
+	var args = Array.prototype.slice.call(arguments); // to convert array object
+	this._reserved_next_scene_name_and_arguments = args;
+	this._is_reserved_next_scene_init = true; // scene will inited
+
+	// immediately if no scene is set
+	if (!this._current_scene) {
+		this._changeNextSceneIfReserved();
+	}
+};
+SceneManager.prototype.returnScene = function(scene_name) {
+	if(!(scene_name in this._scenes)) throw new Error (scene_name + " scene doesn't exists.");
+
+	this._reserved_next_scene_name_and_arguments = [scene_name];
+	this._is_reserved_next_scene_init = false; // scene will NOT inited
+};
+
+SceneManager.prototype._changeNextSceneIfReserved = function() {
+	if(this._reserved_next_scene_name_and_arguments) {
+
+		if (this.isSetFadeOut() && !this.isInFadeOut()) {
+			this.startFadeOut();
+		}
+		else if (this.isSetFadeOut() && this.isInFadeOut()) {
+			// waiting for quiting fade out
+		}
+		else {
+			// change next scene
+			this._current_scene = this._reserved_next_scene_name_and_arguments.shift();
+			var current_scene = this.currentScene();
+
+			var argument_list = this._reserved_next_scene_name_and_arguments;
+			this._reserved_next_scene_name_and_arguments = null;
+
+			// if returnScene method is called, scene will not be inited.
+			if(this._is_reserved_next_scene_init) {
+				current_scene.init.apply(current_scene, argument_list);
+			}
+		}
+	}
+};
+SceneManager.prototype.changeSceneWithLoading = function(scene, assets) {
+	if(!assets) assets = {};
+	this.changeScene("loading", assets, scene);
+};
+
+
+SceneManager.prototype.setFadeIn = function(duration, color) {
+	this._fade_in_duration = duration || 30;
+	this._fade_in_color = color || 'white';
+
+	// start fade in immediately
+	this._startFadeIn();
+};
+SceneManager.prototype._startFadeIn = function() {
+	this._quitFadeOut();
+	this._fade_in_start_frame_count = this.core.frame_count;
+};
+
+SceneManager.prototype._quitFadeIn = function() {
+	this._fade_in_duration = null;
+	this._fade_in_color = null;
+	this._fade_in_start_frame_count = null;
+};
+SceneManager.prototype.isInFadeIn = function() {
+	return this._fade_in_start_frame_count !== null ? true : false;
+};
+
+
+SceneManager.prototype.setFadeOut = function(duration, color) {
+	duration = typeof duration !== "undefined" ? duration : 30;
+	this._fade_out_duration = duration;
+	this._fade_out_color = color || 'black';
+};
+SceneManager.prototype.startFadeOut = function() {
+	if(!this.isSetFadeOut()) return;
+
+	this._quitFadeIn();
+	this._fade_out_start_frame_count = this.core.frame_count;
+};
+
+SceneManager.prototype._quitFadeOut = function() {
+	this._fade_out_duration = null;
+	this._fade_out_color = null;
+	this._fade_out_start_frame_count = null;
+};
+SceneManager.prototype.isInFadeOut = function() {
+	return this._fade_out_start_frame_count !== null ? true : false;
+};
+SceneManager.prototype.isSetFadeOut = function() {
+	return this._fade_out_duration && this._fade_out_color ? true : false;
+};
+
+SceneManager.prototype.drawTransition = function() {
+	var ctx = this.core.ctx;
+
+	var alpha;
+	// fade in
+	if (this.isInFadeIn()) {
+		ctx.save();
+		// tranparent settings
+		if(this.core.frame_count - this._fade_in_start_frame_count < this._fade_in_duration) {
+			alpha = 1.0 - (this.core.frame_count - this._fade_in_start_frame_count) / this._fade_in_duration;
+		}
+		else {
+			alpha = 0.0;
+		}
+
+		ctx.globalAlpha = alpha;
+
+		// transition color
+		ctx.fillStyle = this._fade_in_color;
+		ctx.fillRect(0, 0, this.core.width, this.core.height);
+
+		ctx.restore();
+
+		// alpha === 0.0 by transparent settings so quit fade in
+		// why there? because alpha === 0, _fade_in_color === null by quitFadeIn method
+		if(alpha === 0) this._quitFadeIn();
+
+	}
+	// fade out
+	else if (this.isInFadeOut()) {
+		ctx.save();
+		// tranparent settings
+		if(this.core.frame_count - this._fade_out_start_frame_count < this._fade_out_duration) {
+			alpha = (this.core.frame_count - this._fade_out_start_frame_count) / this._fade_out_duration;
+		}
+		else {
+			alpha = 1.0;
+		}
+
+		ctx.globalAlpha = alpha;
+
+		// transition color
+		ctx.fillStyle = this._fade_out_color;
+		ctx.fillRect(0, 0, this.core.width, this.core.height);
+
+		ctx.restore();
+
+		// alpha === 1.0 by transparent settings so quit fade out
+		// why there? because alpha === 1, _fade_out_color === null by quitFadeOut method
+		if(alpha === 1) this._quitFadeOut();
+	}
+};
+
+module.exports = SceneManager;
+
+},{"../scene/loading":45}],16:[function(require,module,exports){
+'use strict';
+
+
+var SerifManager = function (option) {
+};
+
+SerifManager.prototype.init = function (script) {
+	return console.error("this method is abolished.");
+};
+SerifManager.prototype.setAutoStart = function (flag) {
+	return console.error("this method is abolished.");
+};
+SerifManager.prototype.isEnd = function () {
+	return console.error("this method is abolished.");
+};
+SerifManager.prototype.isStart = function () {
+	return console.error("this method is abolished.");
+};
+SerifManager.prototype.next = function () {
+	return console.error("this method is abolished.");
+};
+SerifManager.prototype._showBackground = function(script) {
+	return console.error("this method is abolished.");
+};
+SerifManager.prototype._showChara = function(script) {
+	return console.error("this method is abolished.");
+};
+SerifManager.prototype._setOption = function(script) {
+	return console.error("this method is abolished.");
+};
+SerifManager.prototype._printMessage = function (message) {
+	return console.error("this method is abolished.");
+};
+SerifManager.prototype.isWaitingNext = function () {
+	return console.error("this method is abolished.");
+};
+SerifManager.prototype.isEndPrinting = function () {
+	return console.error("this method is abolished.");
+};
+SerifManager.prototype._startPrintMessage = function () {
+	return console.error("this method is abolished.");
+};
+SerifManager.prototype._cancelPrintMessage = function () {
+	return console.error("this method is abolished.");
+};
+SerifManager.prototype.startPrintMessage = function () {
+	return console.error("this method is abolished.");
+};
+SerifManager.prototype.cancelPrintMessage = function () {
+	return console.error("this method is abolished.");
+};
+SerifManager.prototype.isBackgroundChanged = function () {
+	return console.error("this method is abolished.");
+};
+SerifManager.prototype.getBackgroundImageName = function () {
+	return console.error("this method is abolished.");
+};
+SerifManager.prototype.getImageName = function (pos) {
+	return console.error("this method is abolished.");
+};
+SerifManager.prototype.getChara = function (pos) {
+	return console.error("this method is abolished.");
+};
+SerifManager.prototype.isTalking = function (pos) {
+	return console.error("this method is abolished.");
+};
+SerifManager.prototype.getOption = function () {
+	return console.error("this method is abolished.");
+};
+SerifManager.prototype.lines = function () {
+	return console.error("this method is abolished.");
+};
+SerifManager.prototype.getSerifRowsCount = function () {
+	return console.error("this method is abolished.");
+};
+SerifManager.prototype.right_image = function () {
+	return console.error("this method is abolished.");
+};
+SerifManager.prototype.left_image = function () {
+	return console.error("this method is abolished.");
+};
+SerifManager.prototype.is_right_talking = function () {
+	return console.error("this method is abolished.");
+};
+SerifManager.prototype.is_left_talking = function () {
+	return console.error("this method is abolished.");
+};
+SerifManager.prototype.font_color = function () {
+	return console.error("this method is abolished.");
+};
+SerifManager.prototype.is_end = function () {
+	return console.error("this method is abolished.");
+};
+SerifManager.prototype.is_background_changed = function () {
+	return console.error("this method is abolished.");
+};
+SerifManager.prototype.background_image = function () {
+	return console.error("this method is abolished.");
+};
+
+module.exports = SerifManager;
+
+},{}],17:[function(require,module,exports){
+'use strict';
+
+var ID = 0;
+
+var TimeManager = function (core) {
+	this.core = core;
+
+	this.events = {};
+};
+TimeManager.prototype.init = function () {
+	this.events = {};
+};
+
+TimeManager.prototype.setTimeout = function (callback, frame_count) {
+	var current_frame_count = this.core.frame_count;
+	var execute_timing = current_frame_count + frame_count;
+	var id = ++ID;
+
+	if(!this.events[execute_timing]) {
+		this.events[execute_timing] = {};
+	}
+
+	this.events[execute_timing][id] = {
+		callback: callback,
+	};
+
+	return id;
+};
+
+TimeManager.prototype.clearTimeout = function (id) {
+	for (var frame_count in this.events) {
+		var current_events = this.events[frame_count];
+		if(id in current_events) {
+			delete current_events[id];
+			return true;
+		}
+	}
+
+	return false;
+};
+
+
+
+TimeManager.prototype.executeEvents = function () {
+	var current_frame_count = this.core.frame_count;
+	var current_events = this.events[current_frame_count];
+
+	if(!current_events) return;
+
+	for (var id in current_events) {
+		var event = current_events[id];
+		event.callback();
+	}
+
+	delete this.events[current_frame_count];
+};
+
+
+module.exports = TimeManager;
+
+},{}],18:[function(require,module,exports){
+'use strict';
+/*
+	{
+		id:          "number",
+		type:        "number",
+		name:        "string",
+		imageName:   "string",
+		soundName:   "string",
+		description: "string",
+	},
+	{
+		pk: "id"
+	},
+*/
+
+// static class
+var MasterDAOGenerator = {};
+MasterDAOGenerator.exec = function (type_info, option) {
+	if (!type_info || typeof type_info !== "object") throw new Error("type_info argument must be set");
+
+	option = option || {
+		pk: null,
+	};
+
+	if (!option.pk) throw new Error("pk option must be set");
+
+	// constructor
+	var DAOClass = function (data) {
+		this._data = data || {};
+	};
+
+	// properties
+	for (var method_name in type_info) {
+		var type = type_info[method_name];
+
+		// create property
+		(function (method_name) {
+			DAOClass.prototype[method_name] = function () {
+				return this._data[method_name];
+			};
+		})(method_name);
+	}
+	return DAOClass;
+};
+
+module.exports = MasterDAOGenerator;
+
+},{}],19:[function(require,module,exports){
+'use strict';
+var MasterDAOGenerator = require("./dao_generator");
+
+// static class
+var MasterRepositoryGenerator = {};
+MasterRepositoryGenerator.exec = function (type_info, option, data_list) {
+	if (!type_info || typeof type_info !== "object") throw new Error("type_info argument must be set");
+
+	option = option || {
+		pk: null,
+		validate: false,
+	};
+	data_list = data_list || [];
+
+	if (!option.pk) throw new Error("pk option must be set");
+
+	// create DAO class
+	var DAOClass = MasterDAOGenerator.exec(type_info, option);
+
+	// convert hash array => instance hash and list
+	var instance_hash = {};
+	var instance_list = [];
+	for (var i = 0, len = data_list.length; i < len; i++) {
+		var data = data_list[i];
+
+		if (!(option.pk in data)) throw new Error(option.pk + " key data does not exists in master data (index: " + i + ")");
+
+		var pk_value = data[option.pk];
+
+		// create instance
+		var instance = new DAOClass(data);
+		instance_hash[pk_value] = instance;
+		instance_list[i] = instance;
+	}
+
+	// repository is static class.
+	var RepositoryClass = {
+	};
+
+	// property
+	RepositoryClass.DAOClass = DAOClass;
+
+	// methods
+	RepositoryClass.find = function (pk) {
+		return instance_hash[pk];
+	};
+
+	RepositoryClass.all = function () {
+		return instance_list;
+	};
+
+
+	return RepositoryClass;
+};
+
+module.exports = MasterRepositoryGenerator;
+
+},{"./dao_generator":18}],20:[function(require,module,exports){
 /**
  * @fileoverview gl-matrix - High performance matrix and vector operations
  * @author Brandon Jones
@@ -1263,7 +3030,7 @@ exports.quat = require("./gl-matrix/quat.js");
 exports.vec2 = require("./gl-matrix/vec2.js");
 exports.vec3 = require("./gl-matrix/vec3.js");
 exports.vec4 = require("./gl-matrix/vec4.js");
-},{"./gl-matrix/common.js":16,"./gl-matrix/mat2.js":17,"./gl-matrix/mat2d.js":18,"./gl-matrix/mat3.js":19,"./gl-matrix/mat4.js":20,"./gl-matrix/quat.js":21,"./gl-matrix/vec2.js":22,"./gl-matrix/vec3.js":23,"./gl-matrix/vec4.js":24}],16:[function(require,module,exports){
+},{"./gl-matrix/common.js":21,"./gl-matrix/mat2.js":22,"./gl-matrix/mat2d.js":23,"./gl-matrix/mat3.js":24,"./gl-matrix/mat4.js":25,"./gl-matrix/quat.js":26,"./gl-matrix/vec2.js":27,"./gl-matrix/vec3.js":28,"./gl-matrix/vec4.js":29}],21:[function(require,module,exports){
 /* Copyright (c) 2015, Brandon Jones, Colin MacKenzie IV.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -1335,7 +3102,7 @@ glMatrix.equals = function(a, b) {
 
 module.exports = glMatrix;
 
-},{}],17:[function(require,module,exports){
+},{}],22:[function(require,module,exports){
 /* Copyright (c) 2015, Brandon Jones, Colin MacKenzie IV.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -1773,7 +3540,7 @@ mat2.multiplyScalarAndAdd = function(out, a, b, scale) {
 
 module.exports = mat2;
 
-},{"./common.js":16}],18:[function(require,module,exports){
+},{"./common.js":21}],23:[function(require,module,exports){
 /* Copyright (c) 2015, Brandon Jones, Colin MacKenzie IV.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -2244,7 +4011,7 @@ mat2d.equals = function (a, b) {
 
 module.exports = mat2d;
 
-},{"./common.js":16}],19:[function(require,module,exports){
+},{"./common.js":21}],24:[function(require,module,exports){
 /* Copyright (c) 2015, Brandon Jones, Colin MacKenzie IV.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -2992,7 +4759,7 @@ mat3.equals = function (a, b) {
 
 module.exports = mat3;
 
-},{"./common.js":16}],20:[function(require,module,exports){
+},{"./common.js":21}],25:[function(require,module,exports){
 /* Copyright (c) 2015, Brandon Jones, Colin MacKenzie IV.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -5130,7 +6897,7 @@ mat4.equals = function (a, b) {
 
 module.exports = mat4;
 
-},{"./common.js":16}],21:[function(require,module,exports){
+},{"./common.js":21}],26:[function(require,module,exports){
 /* Copyright (c) 2015, Brandon Jones, Colin MacKenzie IV.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -5732,7 +7499,7 @@ quat.equals = vec4.equals;
 
 module.exports = quat;
 
-},{"./common.js":16,"./mat3.js":19,"./vec3.js":23,"./vec4.js":24}],22:[function(require,module,exports){
+},{"./common.js":21,"./mat3.js":24,"./vec3.js":28,"./vec4.js":29}],27:[function(require,module,exports){
 /* Copyright (c) 2015, Brandon Jones, Colin MacKenzie IV.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -6321,7 +8088,7 @@ vec2.equals = function (a, b) {
 
 module.exports = vec2;
 
-},{"./common.js":16}],23:[function(require,module,exports){
+},{"./common.js":21}],28:[function(require,module,exports){
 /* Copyright (c) 2015, Brandon Jones, Colin MacKenzie IV.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -7100,7 +8867,7 @@ vec3.equals = function (a, b) {
 
 module.exports = vec3;
 
-},{"./common.js":16}],24:[function(require,module,exports){
+},{"./common.js":21}],29:[function(require,module,exports){
 /* Copyright (c) 2015, Brandon Jones, Colin MacKenzie IV.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -7711,7 +9478,7 @@ vec4.equals = function (a, b) {
 
 module.exports = vec4;
 
-},{"./common.js":16}],25:[function(require,module,exports){
+},{"./common.js":21}],30:[function(require,module,exports){
 (function (global){
 /*
 ** Copyright (c) 2012 The Khronos Group Inc.
@@ -8669,20 +10436,24 @@ return {
 module.exports = WebGLDebugUtils;
 
 }).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{}],26:[function(require,module,exports){
+},{}],31:[function(require,module,exports){
 'use strict';
 
-var util = require('../util');
+// internal class
+// you should require base.js or point.js
+
+var Util = require('../util');
+
+// used by isOutOfStage method
+var EXTRA_OUT_OF_SIZE = 100;
 
 var id = 0;
 
-// is draw collision size
-var IS_SHOW_COLLISION = false;
-
-var ObjectBase = function(scene, object) {
+var ObjectBase = function(scene) {
 	this.scene = scene;
 	this.core = scene.core;
-	this.parent = object; // parent object if this is sub object
+	// TODO: parent -> parent() because ajust to root method
+	this.parent = null; // parent object if this is sub object
 	this.id = ++id;
 
 	this.frame_count = 0;
@@ -8691,14 +10462,21 @@ var ObjectBase = function(scene, object) {
 	this._y = 0; // local center y
 
 	// manage flags that disappears in frame elapsed
-	this.auto_disable_times_map = {};
+	this._auto_disable_times_map = {};
 
-	this.velocity = {magnitude:0, theta:0};
+	this._velocity = null;
+	this.resetVelocity();
+
+	this._previous_x = null;
+	this._previous_y = null;
 
 	// sub object
 	this.objects = [];
 
 };
+
+Util.defineProperty(ObjectBase, "x");
+Util.defineProperty(ObjectBase, "y");
 
 ObjectBase.prototype.init = function(){
 	this.frame_count = 0;
@@ -8707,7 +10485,12 @@ ObjectBase.prototype.init = function(){
 	//this._x = 0;
 	//this._y = 0;
 
-	this.auto_disable_times_map = {};
+	this._auto_disable_times_map = {};
+
+	this.resetVelocity();
+
+	this._previous_x = null;
+	this._previous_y = null;
 
 	for(var i = 0, len = this.objects.length; i < len; i++) {
 		this.objects[i].init();
@@ -8717,24 +10500,21 @@ ObjectBase.prototype.init = function(){
 ObjectBase.prototype.beforeDraw = function(){
 	this.frame_count++;
 
-	this.checkAutoDisableFlags();
+	// check flags that disappears in frame elapsed
+	this._checkAutoDisableFlags();
 
 	for(var i = 0, len = this.objects.length; i < len; i++) {
 		this.objects[i].beforeDraw();
 	}
 
-	this.move();
+	// move if this object is set velocity
+	this._move();
 };
 
 ObjectBase.prototype.draw = function() {
-	var ctx = this.core.ctx;
-	// TODO: DEBUG
-	if(IS_SHOW_COLLISION) {
-		ctx.save();
-		ctx.fillStyle = 'rgb( 255, 255, 255 )' ;
-		ctx.globalAlpha = 0.4;
-		ctx.fillRect(this.getCollisionLeftX(), this.getCollisionUpY(), this.collisionWidth(), this.collisionHeight());
-		ctx.restore();
+	// If is in DEBUG mode, show collision area
+	if(this.core.debug_manager.isShowingCollisionArea()) {
+		this._drawCollisionArea("white");
 	}
 
 
@@ -8749,14 +10529,90 @@ ObjectBase.prototype.afterDraw = function() {
 	}
 };
 
+ObjectBase.prototype.width = function() {
+	return 0;
+};
+ObjectBase.prototype.height = function() {
+	return 0;
+};
+
+ObjectBase.prototype.setPosition = function(x, y) {
+	this._x = x;
+	this._y = y;
+};
+
+ObjectBase.prototype.root = function() {
+	if (this.parent) {
+		return this.parent.root();
+	}
+	else {
+		return this;
+	}
+};
+
+
+
+/*
+*******************************
+* position methods
+*******************************
+*/
+
+ObjectBase.prototype.globalCenterX = function() {
+	return this.scene.x() + this.x();
+};
+
+ObjectBase.prototype.globalCenterY = function() {
+	return this.scene.y() + this.y();
+};
+
+
+ObjectBase.prototype.globalLeftX = function() {
+	return this.scene.x() + this.x() - this.width()/2;
+};
+
+ObjectBase.prototype.globalRightX = function() {
+	return this.scene.x() + this.x() + this.width()/2;
+};
+
+ObjectBase.prototype.globalUpY = function() {
+	return this.scene.y() + this.y() - this.height()/2;
+};
+
+ObjectBase.prototype.globalDownY = function() {
+	return this.scene.y() + this.y() + this.height()/2;
+};
+
+/*
+*******************************
+* sub object methods
+*******************************
+*/
+
 // add sub object
 ObjectBase.prototype.addSubObject = function(object){
+	object.setParent(this);
 	this.objects.push(object);
 };
+
+// add sub object list
+ObjectBase.prototype.addSubObjects = function(object_list){
+	// set parent
+	for (var i = 0, len = object_list.length; i < len; i++) {
+		var object = object_list[i];
+		object.setParent(this);
+	}
+
+	this.objects = this.objects.concat(object_list);
+};
+
+
+
 ObjectBase.prototype.removeSubObject = function(object){
 	// TODO: O(n) -> O(1)
 	for(var i = 0, len = this.objects.length; i < len; i++) {
 		if(this.objects[i].id === object.id) {
+			this.objects[i].resetParent();
 			this.objects.splice(i, 1);
 			break;
 		}
@@ -8764,73 +10620,66 @@ ObjectBase.prototype.removeSubObject = function(object){
 };
 
 ObjectBase.prototype.removeAllSubObject = function() {
+	for(var i = 0, len = this.objects.length; i < len; i++) {
+		this.objects[i].resetParent();
+	}
+
 	this.objects = [];
 };
 
-ObjectBase.prototype.move = function() {
-	var x = util.calcMoveXByVelocity(this.velocity);
-	var y = util.calcMoveYByVelocity(this.velocity);
-
-	this._x += x;
-	this._y += y;
-};
-ObjectBase.prototype.onCollision = function(obj){
+// set parent object if this is sub object
+ObjectBase.prototype.setParent = function(parent_object) {
+	if(this.parent) throw new Error("already set parent");
+	this.parent = parent_object;
 };
 
-ObjectBase.prototype.width = function() {
-	return 0;
-};
-ObjectBase.prototype.height = function() {
-	return 0;
-};
-ObjectBase.prototype.globalCenterX = function() {
-	return this.scene.x() + this.x();
-};
-ObjectBase.prototype.globalCenterY = function() {
-	return this.scene.y() + this.y();
-};
-ObjectBase.prototype.globalLeftX = function() {
-	return this.scene.x() + this.x() - this.width()/2;
-};
-ObjectBase.prototype.globalRightX = function() {
-	return this.scene.x() + this.x() + this.width()/2;
-};
-ObjectBase.prototype.globalUpY = function() {
-	return this.scene.x() + this.y() - this.height()/2;
-};
-ObjectBase.prototype.globalDownY = function() {
-	return this.scene.x() + this.y() + this.height()/2;
+ObjectBase.prototype.resetParent = function() {
+	this.parent = null;
 };
 
+/*
+*******************************
+* collision methods
+*******************************
+*/
+
+// collision width
+// NOTE: the obj of arguments is collision target object
 ObjectBase.prototype.collisionWidth = function(obj) {
 	return 0;
 };
+
+// collision height
+// NOTE: the obj of arguments is collision target object
 ObjectBase.prototype.collisionHeight = function(obj) {
 	return 0;
 };
+
+// callback if the object is collision with
+// NOTE: the obj of arguments is collision target object
+ObjectBase.prototype.onCollision = function(obj){
+};
+
+// flag if the object is check collision with
+// NOTE: the obj of arguments is collision target object
 ObjectBase.prototype.isCollision = function(obj) {
 	return true;
 };
 
-
-ObjectBase.prototype.checkCollisionWithPosition = function(x, y) {
-	if(this.checkCollisionByPosition(x, y)) {
-		this.onCollision();
-		return true;
-	}
-
-	return false;
-};
-
+// check Collision Detect with object and execute onCollision method if detect
 ObjectBase.prototype.checkCollisionWithObject = function(obj1) {
 	var obj2 = this;
-	if(obj1.checkCollisionByObject(obj2)) {
+	var is_collision = obj1.intersect(obj2);
+
+	if(is_collision) {
 		obj1.onCollision(obj2);
 		obj2.onCollision(obj1);
-		return true;
 	}
-	return false;
+
+	return is_collision;
 };
+
+// check Collision Detect with object array and execute onCollision method if detect
 ObjectBase.prototype.checkCollisionWithObjects = function(objs) {
 	var obj1 = this;
 	var return_flag = false;
@@ -8846,94 +10695,166 @@ ObjectBase.prototype.checkCollisionWithObjects = function(objs) {
 	return return_flag;
 };
 
+// check Collision Detect with (x, y) and execute onCollision method if detect
+ObjectBase.prototype.checkCollisionWithPosition = function(x, y) {
+	var point = new ObjectPoint(this.scene);
+	point.init();
+	point.setPosition(x, y);
+
+	return this.checkCollisionWithObject(point);
+};
+
+// is the object collides with obj of argument ?
+ObjectBase.prototype.intersect = function(obj) {
+	if (!this.isCollision(obj) || !obj.isCollision(this)) return false;
+
+	if(Math.abs(this.collisionX() - obj.collisionX()) < this.collisionWidth(obj)/2 + obj.collisionWidth(this)/2 &&
+		Math.abs(this.collisionY() - obj.collisionY()) < this.collisionHeight(obj)/2 + obj.collisionHeight(this)/2) {
+		return true;
+	}
+
+	return false;
+};
+
+ObjectBase.prototype.collisionX = function() {
+	return this.x();
+};
+ObjectBase.prototype.collisionY = function() {
+	return this.y();
+};
+
+ObjectBase.prototype.getCollisionLeftX = function(obj) {
+	return this.collisionX() - this.collisionWidth(obj) / 2;
+};
+
+ObjectBase.prototype.getCollisionRightX = function(obj) {
+	return this.collisionX() + this.collisionWidth(obj) / 2;
+};
+
+ObjectBase.prototype.getCollisionUpY = function(obj) {
+	return this.collisionY() - this.collisionHeight(obj) / 2;
+};
+
+ObjectBase.prototype.getCollisionDownY = function(obj) {
+	return this.collisionY() + this.collisionHeight(obj) / 2;
+};
+
+ObjectBase.prototype._drawCollisionArea = function(color) {
+	// make dummy object to decide collision width and height
+	var dummy_object = new ObjectBase(this.scene);
+
+	// check whether does collide with
+	if (!this.isCollision(dummy_object)) return;
+
+	color = color || 'rgb( 255, 255, 255 )' ;
+	var ctx = this.core.ctx;
+	ctx.save();
+	ctx.fillStyle = color;
+	ctx.globalAlpha = 0.4;
+	ctx.fillRect(
+		this.getCollisionLeftX(dummy_object),
+		this.getCollisionUpY(dummy_object),
+		this.collisionWidth(dummy_object),
+		this.collisionHeight(dummy_object)
+	);
+	ctx.restore();
+};
+
 
 // NOTE: deprecated
 ObjectBase.prototype.checkCollision = function(obj) {
 	return this.checkCollisionByObject(obj);
 };
 
+// NOTE: deprecated
 ObjectBase.prototype.checkCollisionByObject = function(obj) {
-	if (!this.isCollision(obj) || !obj.isCollision(this)) return false;
-
-	if(Math.abs(this.x() - obj.x()) < this.collisionWidth(obj)/2 + obj.collisionWidth(this)/2 &&
-		Math.abs(this.y() - obj.y()) < this.collisionHeight(obj)/2 + obj.collisionHeight(this)/2) {
-		return true;
-	}
-
-	return false;
+	return this.intersect(obj);
 };
-
-ObjectBase.prototype.checkCollisionByPosition = function(x, y) {
-	if (!this.isCollision()) return false; // TODO: pass arguments of point object to isCollision method
-
-	if (this.x() - this.collisionWidth()/2 < x && x < this.x() + this.collisionWidth()/2 &&
-		this.y() - this.collisionHeight()/2 < y && y < this.y() + this.collisionHeight()/2) {
-		return true;
-	}
-
-	return false;
-};
-
-
-
-
-ObjectBase.prototype.getCollisionLeftX = function(obj) {
-	return this.x() - this.collisionWidth(obj) / 2;
-};
-ObjectBase.prototype.getCollisionRightX = function(obj) {
-	return this.x() + this.collisionWidth(obj) / 2;
-};
-ObjectBase.prototype.getCollisionUpY = function(obj) {
-	return this.y() - this.collisionHeight(obj) / 2;
-};
-ObjectBase.prototype.getCollisionDownY = function(obj) {
-	return this.y() + this.collisionHeight(obj) / 2;
-};
-
-
-
-
-
-
-
-
+/*
+*******************************
+* disable flag methods
+*******************************
+*/
 
 // set flags that disappears in frame elapsed
 // TODO: enable to set flag which becomes false -> true
+// TODO: reset flag if the object calls init method
 ObjectBase.prototype.setAutoDisableFlag = function(flag_name, count) {
 	var self = this;
 
 	self[flag_name] = true;
 
-	self.auto_disable_times_map[flag_name] = self.frame_count + count;
+	self._auto_disable_times_map[flag_name] = self.frame_count + count;
 
 };
 
 // check flags that disappears in frame elapsed
-ObjectBase.prototype.checkAutoDisableFlags = function() {
+ObjectBase.prototype._checkAutoDisableFlags = function() {
 	var self = this;
-	for (var flag_name in self.auto_disable_times_map) {
-		if(this.auto_disable_times_map[flag_name] < self.frame_count) {
+	for (var flag_name in self._auto_disable_times_map) {
+		if(this._auto_disable_times_map[flag_name] < self.frame_count) {
 			self[flag_name] = false;
-			delete self.auto_disable_times_map[flag_name];
+			delete self._auto_disable_times_map[flag_name];
 		}
 	}
 };
 
-ObjectBase.prototype.x = function(val) {
-	if (typeof val !== 'undefined') { this._x = val; }
-	return this._x;
-};
-ObjectBase.prototype.y = function(val) {
-	if (typeof val !== 'undefined') { this._y = val; }
-	return this._y;
-};
+/*
+*******************************
+* velocity methods
+*******************************
+*/
 
 ObjectBase.prototype.setVelocity = function(velocity) {
-	this.velocity = velocity;
+	this._velocity = velocity;
 };
 
-var EXTRA_OUT_OF_SIZE = 100;
+ObjectBase.prototype.resetVelocity = function() {
+	this._velocity = {magnitude:0, theta:0};
+};
+
+ObjectBase.prototype.setVelocityMagnitude = function(magnitude) {
+	this._velocity.magnitude = magnitude;
+};
+
+ObjectBase.prototype.setVelocityTheta = function(theta) {
+	this._velocity.theta = theta;
+};
+
+// move if this object is set velocity
+// TODO: doesn't move if the object's velocity magnitude is 0
+ObjectBase.prototype._move = function() {
+	var x = Util.calcMoveXByVelocity(this._velocity);
+	var y = Util.calcMoveYByVelocity(this._velocity);
+
+	// save previous (x,y)
+	this._previous_x = this._x;
+	this._previous_y = this._y;
+
+	this._x += x;
+	this._y += y;
+};
+
+ObjectBase.prototype.moveBack = function() {
+	if (this._previous_x === null && this._previous_y) return;
+
+	var current_x = this._x;
+	var current_y = this._y;
+
+	this._x = this._previous_x;
+	this._y = this._previous_y;
+
+	this._previous_x = current_x;
+	this._previous_y = current_y;
+};
+
+/*
+*******************************
+* other methods
+*******************************
+*/
+
+// TODO: this.core -> this.scene
 ObjectBase.prototype.isOutOfStage = function( ) {
 	if(this.x() + EXTRA_OUT_OF_SIZE < 0 ||
 	   this.y() + EXTRA_OUT_OF_SIZE < 0 ||
@@ -8946,18 +10867,55 @@ ObjectBase.prototype.isOutOfStage = function( ) {
 	return false;
 };
 
+/*
+*******************************
+* point object class
+*******************************
+*/
 
+var ObjectPoint = function(scene) {
+	ObjectBase.apply(this, arguments);
 
+};
+Util.inherit(ObjectPoint, ObjectBase);
 
+ObjectPoint.prototype.collisionWidth = function(){
+	return 1;
+};
+ObjectPoint.prototype.collisionHeight = function(){
+	return 1;
+};
+ObjectPoint.prototype.width = function() {
+	return 1;
+};
+ObjectPoint.prototype.height = function() {
+	return 1;
+};
 
-module.exports = ObjectBase;
+module.exports = {
+	object_base: ObjectBase,
+	object_point: ObjectPoint,
+};
 
-
-},{"../util":40}],27:[function(require,module,exports){
+},{"../util":53}],32:[function(require,module,exports){
 'use strict';
 
+var _base_and_point_classes = require('./_base_and_point_classes');
+
+module.exports = _base_and_point_classes.object_base;
+
+},{"./_base_and_point_classes":31}],33:[function(require,module,exports){
+'use strict';
+
+var _base_and_point_classes = require('./_base_and_point_classes');
+
+module.exports = _base_and_point_classes.object_point;
+
+},{"./_base_and_point_classes":31}],34:[function(require,module,exports){
+'use strict';
+// TODO: rename manager -> container
 // TODO: add pooling logic
-// TODO: split manager class and pool manager class
+// TODO: split object container class and pool object container class
 var base_object = require('./base');
 var util = require('../util');
 
@@ -9010,13 +10968,18 @@ PoolManager.prototype.remove = function(id) {
 };
 
 PoolManager.prototype.checkCollisionWithObject = function(obj1) {
+	var is_collision = false;
 	for(var id in this.objects) {
 		var obj2 = this.objects[id];
-		if(obj1.checkCollision(obj2)) {
+		if(obj1.intersect(obj2)) {
 			obj1.onCollision(obj2);
 			obj2.onCollision(obj1);
+
+			is_collision = true;
 		}
 	}
+
+	return is_collision;
 };
 
 PoolManager.prototype.checkCollisionWithManager = function(manager) {
@@ -9051,16 +11014,17 @@ PoolManager.prototype.removeOutOfStageObjects = function() {
 
 module.exports = PoolManager;
 
-},{"../util":40,"./base":26}],28:[function(require,module,exports){
+},{"../util":53,"./base":32}],35:[function(require,module,exports){
 'use strict';
 
+// TODO: rename manager -> container
 // TODO: add pooling logic
-// TODO: split manager class and pool manager class
+// TODO: split object container class and pool object container class
 var base_object = require('./base');
 var util = require('../util');
 var glmat = require('gl-matrix');
 
-var CONSTANT_3D = require('../constant_3d').SPRITE3D;
+var CONSTANT_3D = require('../constant/webgl').SPRITE3D;
 
 var PoolManager3D = function(scene, Class) {
 	base_object.apply(this, arguments);
@@ -9292,7 +11256,7 @@ PoolManager3D.prototype.shader = function(){
 
 module.exports = PoolManager3D;
 
-},{"../constant_3d":10,"../util":40,"./base":26,"gl-matrix":15}],29:[function(require,module,exports){
+},{"../constant/webgl":8,"../util":53,"./base":32,"gl-matrix":20}],36:[function(require,module,exports){
 'use strict';
 var base_object = require('./base');
 var util = require('../util');
@@ -9336,7 +11300,7 @@ Sprite.prototype.draw = function(){
 		ctx.translate(this.globalCenterX(), this.globalCenterY());
 
 		// rotate
-		var rotate = util.thetaToRadian(this.velocity.theta + this.rotateAdjust());
+		var rotate = util.thetaToRadian(this._velocity.theta + this.rotateAdjust());
 		ctx.rotate(rotate);
 
 		var sprite_width  = this.spriteWidth();
@@ -9435,11 +11399,11 @@ Sprite.prototype.alpha = function() {
 
 module.exports = Sprite;
 
-},{"../util":40,"./base":26}],30:[function(require,module,exports){
+},{"../util":53,"./base":32}],37:[function(require,module,exports){
 'use strict';
 var base_object = require('./base');
 var util = require('../util');
-var CONSTANT_3D = require('../constant_3d').SPRITE3D;
+var CONSTANT_3D = require('../constant/webgl').SPRITE3D;
 var glmat = require('gl-matrix');
 
 var Sprite3d = function(scene) {
@@ -9780,8 +11744,358 @@ Sprite3d.prototype.isReflect = function(){
 
 module.exports = Sprite3d;
 
-},{"../constant_3d":10,"../util":40,"./base":26,"gl-matrix":15}],31:[function(require,module,exports){
+},{"../constant/webgl":8,"../util":53,"./base":32,"gl-matrix":20}],38:[function(require,module,exports){
 'use strict';
+
+var BaseObject = require('../base');
+var Util = require('../../util');
+
+var ObjectUIBase = function(scene, option) {
+	BaseObject.apply(this, arguments);
+
+	option = option || {};
+
+	this._default_property = {
+		x:        option.x        || 0,
+		y:        option.y        || 0,
+		children: option.children || [],
+	};
+
+	// event handler
+	this._event_to_callback = {
+		beforedraw: function () {},
+	};
+
+	// children
+	this.objects = this._default_property.children;
+
+	this._show_call_count = 0;
+};
+Util.inherit(ObjectUIBase, BaseObject);
+
+ObjectUIBase.prototype.init = function() {
+	// reset children
+	this.objects = this._default_property.children;
+
+	BaseObject.prototype.init.apply(this, arguments);
+
+	this._show_call_count = 0;
+
+	// postion
+	this.x(this._default_property.x);
+	this.y(this._default_property.y);
+
+	// default
+	this.show();
+};
+
+ObjectUIBase.prototype.on = function (event, callback) {
+	this._event_to_callback[event] = callback;
+
+	return this;
+};
+ObjectUIBase.prototype.removeEvent = function (event) {
+	this._event_to_callback[event] = function(){};
+
+	return this;
+};
+
+ObjectUIBase.prototype._callEvent = function (event) {
+	this._event_to_callback[event].apply(this);
+};
+
+ObjectUIBase.prototype.isEventSet = function (event) {
+	return this._event_to_callback[event] ? true : false;
+};
+
+
+
+ObjectUIBase.prototype.beforeDraw = function() {
+	BaseObject.prototype.beforeDraw.apply(this, arguments);
+
+	this._callEvent("beforedraw");
+
+	if (this.isEventSet("click") && this.core.input_manager.isLeftClickPush()) {
+		var x = this.core.input_manager.mousePositionX();
+		var y = this.core.input_manager.mousePositionY();
+
+		if(this.checkCollisionWithPosition(x, y)) {
+			this._callEvent("click");
+		}
+	}
+};
+
+ObjectUIBase.prototype.draw = function() {
+	BaseObject.prototype.draw.apply(this, arguments);
+};
+
+ObjectUIBase.prototype.isShow = function() {
+	return this._show_call_count > 0;
+};
+
+ObjectUIBase.prototype.collisionWidth = function() {
+	return this.width();
+};
+
+ObjectUIBase.prototype.collisionHeight = function() {
+	return this.height();
+};
+
+
+
+ObjectUIBase.prototype.show = function() {
+	++this._show_call_count;
+};
+ObjectUIBase.prototype.hide = function() {
+	--this._show_call_count;
+};
+
+module.exports = ObjectUIBase;
+
+},{"../../util":53,"../base":32}],39:[function(require,module,exports){
+'use strict';
+
+var BaseObjectUI = require('./base');
+var Util = require('../../util');
+var ObjectUIGroup = function(scene, option) {
+	BaseObjectUI.apply(this, arguments);
+
+	option = option || {};
+
+	this._default_property = Util.assign(this._default_property, {
+		width:           option.width           || 0,
+		height:          option.height          || 0,
+		backgroundColor: option.backgroundColor || null,
+	});
+};
+Util.inherit(ObjectUIGroup, BaseObjectUI);
+
+Util.defineProperty(ObjectUIGroup, "width");
+Util.defineProperty(ObjectUIGroup, "height");
+Util.defineProperty(ObjectUIGroup, "backgroundColor");
+
+ObjectUIGroup.prototype.init = function() {
+	BaseObjectUI.prototype.init.apply(this, arguments);
+
+	this.width(this._default_property.width);
+	this.height(this._default_property.height);
+	this.backgroundColor(this._default_property.backgroundColor);
+};
+
+ObjectUIGroup.prototype.beforeDraw = function() {
+	BaseObjectUI.prototype.beforeDraw.apply(this, arguments);
+
+};
+
+ObjectUIGroup.prototype.draw = function() {
+	if (!this.isShow()) return;
+
+	var ctx = this.core.ctx;
+
+	if (this.backgroundColor()) {
+		ctx.save();
+		ctx.translate(this.x(), this.y());
+		ctx.fillStyle = this.backgroundColor();
+		ctx.fillRect(-this.width()/2, -this.height()/2, this.width(), this.height());
+		ctx.restore();
+	}
+	BaseObjectUI.prototype.draw.apply(this, arguments);
+};
+
+
+module.exports = ObjectUIGroup;
+
+},{"../../util":53,"./base":38}],40:[function(require,module,exports){
+'use strict';
+
+var BaseObjectUI = require('./base');
+var Util = require('../../util');
+var ObjectUIImage = function(scene, option) {
+	BaseObjectUI.apply(this, arguments);
+
+	option = option || {};
+
+	this._default_property = Util.assign(this._default_property, {
+		image_name: option.image_name || null,
+		scale:      option.scale      || 1,
+		width:      option.width      || null,
+		height:     option.height     || null,
+	});
+};
+Util.inherit(ObjectUIImage, BaseObjectUI);
+
+Util.defineProperty(ObjectUIImage, "image_name");
+Util.defineProperty(ObjectUIImage, "scale");
+Util.defineProperty(ObjectUIImage, "width");
+Util.defineProperty(ObjectUIImage, "height");
+
+ObjectUIImage.prototype.init = function() {
+	BaseObjectUI.prototype.init.apply(this, arguments);
+
+	this.image_name(this._default_property.image_name);
+	this.scale(this._default_property.scale);
+	this.width(this._default_property.width);
+	this.height(this._default_property.height);
+
+	if (!this.width() && !this.height()) {
+		var image = this.core.image_loader.getImage(this.image_name());
+		this.width(image.width * this.scale());
+		this.height(image.height * this.scale());
+	}
+};
+
+ObjectUIImage.prototype.beforeDraw = function() {
+	BaseObjectUI.prototype.beforeDraw.apply(this, arguments);
+
+};
+
+ObjectUIImage.prototype.draw = function() {
+	if (!this.isShow()) return;
+
+	var image = this.core.image_loader.getImage(this.image_name());
+	var width  = image.width  * this.scale();
+	var height = image.height * this.scale();
+	var ctx = this.core.ctx;
+	ctx.save();
+	ctx.translate(this.x(), this.y());
+	ctx.drawImage(image,
+		-width/2,
+		-height/2,
+		width,
+		height
+	);
+	ctx.restore();
+	BaseObjectUI.prototype.draw.apply(this, arguments);
+};
+
+
+module.exports = ObjectUIImage;
+
+},{"../../util":53,"./base":38}],41:[function(require,module,exports){
+'use strict';
+
+var LINES = 16;
+
+var BaseObjectUI = require('./base');
+var Util = require('../../util');
+
+var ObjectUISpinner = function(scene, option) {
+	BaseObjectUI.apply(this, arguments);
+
+	option = option || {};
+
+	this._default_property = Util.assign(this._default_property, {
+		size:  option.size  || "",
+		color: option.color || "black",
+	});
+};
+Util.inherit(ObjectUISpinner, BaseObjectUI);
+
+Util.defineProperty(ObjectUISpinner, "size");
+Util.defineProperty(ObjectUISpinner, "color");
+
+ObjectUISpinner.prototype.init = function() {
+	BaseObjectUI.prototype.init.apply(this, arguments);
+
+	this.size(this._default_property.size);
+	this.color(this._default_property.color);
+
+	this._start = new Date();
+};
+
+ObjectUISpinner.prototype.beforeDraw = function() {
+	BaseObjectUI.prototype.beforeDraw.apply(this, arguments);
+
+};
+
+ObjectUISpinner.prototype.draw = function() {
+	if (!this.isShow()) return;
+
+	var ctx = this.core.ctx;
+
+    var rotation = Math.floor(this.frame_count / 60 * LINES) / LINES;
+    ctx.save();
+    ctx.translate(this.x(), this.y());
+    ctx.rotate(Math.PI * 2 * rotation);
+    for (var i = 0; i < LINES; i++) {
+
+        ctx.beginPath();
+        ctx.rotate(Math.PI * 2 / LINES);
+        ctx.moveTo(this.size() / 10, 0);
+        ctx.lineTo(this.size() / 4, 0);
+        ctx.lineWidth = this.size() / 30;
+		ctx.globalAlpha = i / LINES;
+        ctx.strokeStyle = this.color();
+        ctx.stroke();
+    }
+    ctx.restore();
+	BaseObjectUI.prototype.draw.apply(this, arguments);
+};
+
+ObjectUISpinner.prototype.width = function() { return this.size()/2; };
+ObjectUISpinner.prototype.height = function() { return this.size()/2; };
+
+module.exports = ObjectUISpinner;
+
+},{"../../util":53,"./base":38}],42:[function(require,module,exports){
+'use strict';
+
+var BaseObjectUI = require('./base');
+var Util = require('../../util');
+var ObjectUIText = function(scene, option) {
+	BaseObjectUI.apply(this, arguments);
+
+	option = option || {};
+
+	this._default_property = Util.assign(this._default_property, {
+		text:      option.text || "",
+		textColor: option.textColor || "black",
+		textSize:  option.textSize  || "24px",
+		textAlign: option.textAlign || "left",
+	});
+};
+Util.inherit(ObjectUIText, BaseObjectUI);
+
+Util.defineProperty(ObjectUIText, "text");
+Util.defineProperty(ObjectUIText, "textColor");
+Util.defineProperty(ObjectUIText, "textSize");
+Util.defineProperty(ObjectUIText, "textAlign");
+
+ObjectUIText.prototype.init = function() {
+	BaseObjectUI.prototype.init.apply(this, arguments);
+
+	this.text(this._default_property.text);
+	this.textColor(this._default_property.textColor);
+	this.textSize(this._default_property.textSize);
+	this.textAlign(this._default_property.textAlign);
+};
+
+ObjectUIText.prototype.beforeDraw = function() {
+	BaseObjectUI.prototype.beforeDraw.apply(this, arguments);
+
+};
+
+ObjectUIText.prototype.draw = function() {
+	if (!this.isShow()) return;
+
+	var ctx = this.core.ctx;
+
+	ctx.save();
+	ctx.fillStyle = this.textColor();
+	ctx.textAlign = this.textAlign();
+	ctx.font = this.textSize() + " 'sans-serif'";
+	ctx.fillText(this.text(), this.x(), this.y());
+	ctx.restore();
+	BaseObjectUI.prototype.draw.apply(this, arguments);
+};
+
+
+module.exports = ObjectUIText;
+
+},{"../../util":53,"./base":38}],43:[function(require,module,exports){
+'use strict';
+// deprecated. use ui objects
+
 var base_object = require('./base');
 var Util = require('../util');
 
@@ -9794,13 +12108,23 @@ var ObjectUIParts = function(scene, x, y, width, height, draw_function) {
 	this._width  = width;
 	this._height = height;
 
-	this._draw_function = draw_function.bind(this);
+	this._draw_function = null;
+	if (typeof draw_function !== "undefined") {
+		this._draw_function = Util.bind(draw_function, this);
+	}
 
 	this._is_show_rect = false;
 
-	this._scale = 1;
+	this._collision_callback = null;
 };
 Util.inherit(ObjectUIParts, base_object);
+
+ObjectUIParts.prototype.onCollision = function(obj) {
+	if (this._collision_callback) {
+		this._collision_callback(obj);
+	}
+};
+
 
 ObjectUIParts.prototype.collisionWidth = function(){
 	return this._width;
@@ -9819,11 +12143,18 @@ ObjectUIParts.prototype.setVariable = function (name, value){
 	this[name] = value;
 	return this;
 };
+ObjectUIParts.prototype.setCollisionCallback = function (func){
+	this._collision_callback = Util.bind(func, this);
+};
+
 
 ObjectUIParts.prototype.draw = function(){
+	base_object.prototype.draw.apply(this, arguments);
 	var ctx = this.core.ctx;
 	ctx.save();
-	this._draw_function();
+	if (this._draw_function) {
+		this._draw_function();
+	}
 	ctx.restore();
 
 	if(this._is_show_rect) {
@@ -9837,12 +12168,15 @@ ObjectUIParts.prototype.draw = function(){
 
 module.exports = ObjectUIParts;
 
-},{"../util":40,"./base":26}],32:[function(require,module,exports){
+},{"../util":53,"./base":32}],44:[function(require,module,exports){
 'use strict';
+var ObjectBase = require("../object/base");
+var Util = require('../util');
 
-var SceneBase = function(core, scene) {
+var SceneBase = function(core) {
 	this.core = core;
-	this.parent = scene; // parent scene if this is sub scene
+	// TODO: parent -> parent() because ajust to root method
+	this.parent = null; // parent scene if this is sub scene
 	this.width = this.core.width; // default
 	this.height = this.core.height; // default
 
@@ -9856,38 +12190,38 @@ var SceneBase = function(core, scene) {
 	// sub scenes
 	this.current_scene = null;
 	this._reserved_next_scene = null; // next scene which changes next frame run
+	this._is_reserved_next_scene_init = true; // is scene will inited?
+
 	this.scenes = {};
 
-	// property for fade in
-	this._fade_in_duration = null;
-	this._fade_in_color = null;
-	this._fade_in_start_frame_count = null;
+	// property for wait to start bgm
+	this._wait_to_start_bgm_name = null;
+	this._wait_to_start_bgm_duration = null;
+	this._wait_to_start_bgm_start_frame_count = null;
 
-	// property for fade out
-	this._fade_out_duration = null;
-	this._fade_out_color = null;
-	this._fade_out_start_frame_count = null;
+	// property for background
+	this._background_color = null;
+
+	// UI view
+	this.ui = new UI(this);
+	this.addObject(this.ui); // TODO: draw after all objects drawed
 };
 
 SceneBase.prototype.init = function(){
 	// sub scenes
 	this.current_scene = null;
 	this._reserved_next_scene = null; // next scene which changes next frame run
+	this._is_reserved_next_scene_init = true; // is scene will inited?
 
 	this._x = 0;
 	this._y = 0;
 
 	this.frame_count = 0;
 
-	// property for fade in
-	this._fade_in_duration = null;
-	this._fade_in_color = null;
-	this._fade_in_start_frame_count = null;
-
-	// property for fade out
-	this._fade_out_duration = null;
-	this._fade_out_color = null;
-	this._fade_out_start_frame_count = null;
+	// property for wait to start bgm
+	this._wait_to_start_bgm_name = null;
+	this._wait_to_start_bgm_duration = null;
+	this._wait_to_start_bgm_start_frame_count = null;
 
 	for(var i = 0, len = this.objects.length; i < len; i++) {
 		this.objects[i].init();
@@ -9895,7 +12229,17 @@ SceneBase.prototype.init = function(){
 };
 
 SceneBase.prototype.beforeDraw = function(){
-	this.frame_count++;
+	// for setWaitToStartBGM method
+	if (this._wait_to_start_bgm_name) {
+		if(this.frame_count - this._wait_to_start_bgm_start_frame_count >= this._wait_to_start_bgm_duration) {
+			this.core.audio_loader.playBGM(this._wait_to_start_bgm_name);
+
+			// reset properties for wait to start bgm
+			this._wait_to_start_bgm_name = null;
+			this._wait_to_start_bgm_duration = null;
+			this._wait_to_start_bgm_start_frame_count = null;
+		}
+	}
 
 	// go to next sub scene if next scene is set
 	this.changeNextSubSceneIfReserved();
@@ -9905,69 +12249,33 @@ SceneBase.prototype.beforeDraw = function(){
 	}
 
 	if(this.currentSubScene()) this.currentSubScene().beforeDraw();
+
+	this.frame_count++;
 };
 
 SceneBase.prototype.draw = function(){
+	this._drawBackground();
+
 	for(var i = 0, len = this.objects.length; i < len; i++) {
 		this.objects[i].draw();
 	}
 	if(this.currentSubScene()) this.currentSubScene().draw();
 };
 
-SceneBase.prototype.afterDraw = function(){
+SceneBase.prototype._drawBackground = function() {
 	var ctx = this.core.ctx;
 
-	var alpha;
-	// fade in
-	if (this.isInFadeIn()) {
+	// background color
+	if (this._background_color) {
 		ctx.save();
-
-		// tranparent settings
-		if(this.frame_count - this._fade_in_start_frame_count < this._fade_in_duration) {
-			alpha = 1.0 - (this.frame_count - this._fade_in_start_frame_count) / this._fade_in_duration;
-		}
-		else {
-			alpha = 0.0;
-		}
-
-		ctx.globalAlpha = alpha;
-
-		// transition color
-		ctx.fillStyle = this._fade_in_color;
+		ctx.fillStyle = this._background_color;
 		ctx.fillRect(0, 0, this.width, this.height);
-
 		ctx.restore();
-
-		// alpha === 0.0 by transparent settings so quit fade in
-		// why there? because alpha === 0, _fade_in_color === null by quitFadeIn method
-		if(alpha === 1) this._quitFadeIn();
-
-	}
-	// fade out
-	else if (this.isInFadeOut()) {
-		ctx.save();
-
-		// tranparent settings
-		if(this.frame_count - this._fade_out_start_frame_count < this._fade_out_duration) {
-			alpha = (this.frame_count - this._fade_out_start_frame_count) / this._fade_out_duration;
-		}
-		else {
-			alpha = 1.0;
-		}
-
-		ctx.globalAlpha = alpha;
-
-		// transition color
-		ctx.fillStyle = this._fade_out_color;
-		ctx.fillRect(0, 0, this.width, this.height);
-
-		ctx.restore();
-
-		// alpha === 1.0 by transparent settings so quit fade out
-		// why there? because alpha === 1, _fade_out_color === null by quitFadeOut method
-		if(alpha === 1) this._quitFadeOut();
 	}
 
+};
+
+SceneBase.prototype.afterDraw = function() {
 	for(var i = 0, len = this.objects.length; i < len; i++) {
 		this.objects[i].afterDraw();
 	}
@@ -9984,10 +12292,28 @@ SceneBase.prototype.addObjects = function(object_list){
 SceneBase.prototype.removeAllObject = function() {
 	this.objects = [];
 };
+SceneBase.prototype.removeObject = function(object){
+	// TODO: O(n) -> O(1)
+	for(var i = 0, len = this.objects.length; i < len; i++) {
+		if(this.objects[i].id === object.id) {
+			this.objects.splice(i, 1);
+			break;
+		}
+	}
+};
 
 
 
 
+// set parent scene if this is sub scene
+SceneBase.prototype.setParent = function(parent_scene) {
+	if(this.parent) throw new Error("already set parent");
+	this.parent = parent_scene;
+};
+
+SceneBase.prototype.resetParent = function() {
+	this.parent = null;
+};
 
 SceneBase.prototype.currentSubScene = function() {
 	if(this.current_scene === null) {
@@ -10001,69 +12327,50 @@ SceneBase.prototype.getSubScene = function(name) {
 };
 
 SceneBase.prototype.addSubScene = function(name, scene) {
+	scene.setParent(this);
 	this.scenes[name] = scene;
 };
 SceneBase.prototype.changeSubScene = function() {
 	var args = Array.prototype.slice.call(arguments); // to convert array object
 	this._reserved_next_scene = args;
+	this._is_reserved_next_scene_init = true; // scene will inited
 
+	// immediately if no sub scene is set
+	if (!this.current_scene) {
+		this.changeNextSubSceneIfReserved();
+	}
 };
+SceneBase.prototype.returnSubScene = function(scene_name) {
+	this._reserved_next_scene = [scene_name];
+	this._is_reserved_next_scene_init = false; // scene will NOT inited
+};
+
 SceneBase.prototype.changeNextSubSceneIfReserved = function() {
 	if(this._reserved_next_scene) {
 		this.current_scene = this._reserved_next_scene.shift();
-
 		var current_sub_scene = this.currentSubScene();
-		current_sub_scene.init.apply(current_sub_scene, this._reserved_next_scene);
 
+		var argument_list = this._reserved_next_scene;
 		this._reserved_next_scene = null;
+
+		// if returnSubScene method is called, scene will not be inited.
+		if(this._is_reserved_next_scene_init) {
+			current_sub_scene.init.apply(current_sub_scene, argument_list);
+		}
 	}
 
 };
 
-SceneBase.prototype.setFadeIn = function(duration, color) {
-	this._fade_in_duration = duration || 30;
-	this._fade_in_color = color || 'white';
+// play bgm after some wait counts
+SceneBase.prototype.setWaitToStartBGM = function(bgm_name, wait_count) {
+	if(!wait_count) wait_count = 0;
+	this._wait_to_start_bgm_name = bgm_name;
+	this._wait_to_start_bgm_duration = wait_count;
+	this._wait_to_start_bgm_start_frame_count = this.frame_count;
 
-	// start fade in immediately
-	this._startFadeIn();
-};
-SceneBase.prototype._startFadeIn = function() {
-	this._quitFadeOut();
-	this._fade_in_start_frame_count = this.frame_count;
-};
-
-SceneBase.prototype._quitFadeIn = function() {
-	this._fade_in_duration = null;
-	this._fade_in_color = null;
-	this._fade_in_start_frame_count = null;
-};
-SceneBase.prototype.isInFadeIn = function() {
-	return this._fade_in_start_frame_count !== null ? true : false;
 };
 
 
-SceneBase.prototype.setFadeOut = function(duration, color) {
-	this._fade_out_duration = duration || 30;
-	this._fade_out_color = color || 'black';
-};
-SceneBase.prototype.startFadeOut = function() {
-	if(!this.isSetFadeOut()) return;
-
-	this._quitFadeIn();
-	this._fade_out_start_frame_count = this.frame_count;
-};
-
-SceneBase.prototype._quitFadeOut = function() {
-	this._fade_out_duration = null;
-	this._fade_out_color = null;
-	this._fade_out_start_frame_count = null;
-};
-SceneBase.prototype.isInFadeOut = function() {
-	return this._fade_out_start_frame_count !== null ? true : false;
-};
-SceneBase.prototype.isSetFadeOut = function() {
-	return this._fade_out_duration && this._fade_out_color ? true : false;
-};
 
 SceneBase.prototype.x = function(val) {
 	if (typeof val !== 'undefined') { this._x = val; }
@@ -10073,11 +12380,59 @@ SceneBase.prototype.y = function(val) {
 	if (typeof val !== 'undefined') { this._y = val; }
 	return this._y;
 };
+SceneBase.prototype.root = function() {
+	if (this.parent) {
+		return this.parent.root();
+	}
+	else {
+		return this;
+	}
+};
+SceneBase.prototype.setBackgroundColor = function(color) {
+	this._background_color = color;
+};
+
+SceneBase.prototype.setFadeIn = function(duration, color) {
+	console.error("scene's setFadeIn method is deprecated.");
+	return this.core.scene_manager.setFadeIn.apply(this.core.scene_manager, arguments);
+};
+SceneBase.prototype.isInFadeIn = function() {
+	console.error("scene's isInFadeIn method is deprecated.");
+	return this.core.scene_manager.isInFadeIn.apply(this.core.scene_manager, arguments);
+};
+SceneBase.prototype.setFadeOut = function(duration, color) {
+	console.error("scene's setFadeOut method is deprecated.");
+	return this.core.scene_manager.setFadeOut.apply(this.core.scene_manager, arguments);
+};
+SceneBase.prototype.startFadeOut = function() {
+	console.error("scene's startFadeOut method is deprecated.");
+	return this.core.scene_manager.startFadeOut.apply(this.core.scene_manager, arguments);
+};
+SceneBase.prototype.isInFadeOut = function() {
+	console.error("scene's isInFadeOut method is deprecated.");
+	return this.core.scene_manager.isInFadeOut.apply(this.core.scene_manager, arguments);
+};
+SceneBase.prototype.isSetFadeOut = function() {
+	console.error("scene's isSetFadeOut method is deprecated.");
+	return this.core.scene_manager.isSetFadeOut.apply(this.core.scene_manager, arguments);
+};
+
+/*
+*******************************
+* UI view object class
+*******************************
+*/
+
+var UI = function(scene) {
+	ObjectBase.apply(this, arguments);
+
+};
+Util.inherit(UI, ObjectBase);
 
 module.exports = SceneBase;
 
 
-},{}],33:[function(require,module,exports){
+},{"../object/base":32,"../util":53}],45:[function(require,module,exports){
 'use strict';
 
 // loading scene
@@ -10100,12 +12455,20 @@ SceneLoading.prototype.init = function(assets, next_scene_name) {
 	var images = assets.images || [];
 	var sounds = assets.sounds || [];
 	var bgms   = assets.bgms   || [];
+	var fonts  = assets.fonts   || [];
 
 	// go if the all assets loading is done.
 	this.next_scene_name = next_scene_name;
 
 	for (var key in images) {
-		this.core.image_loader.loadImage(key, images[key]);
+		var image_conf = images[key];
+		if (typeof image_conf === "string") {
+			this.core.image_loader.loadImage(key, image_conf);
+		}
+		else {
+			this.core.image_loader.loadImage(key, image_conf.path, image_conf.scale_width, image_conf.scale_height);
+		}
+
 	}
 
 	for (var key2 in sounds) {
@@ -10115,16 +12478,21 @@ SceneLoading.prototype.init = function(assets, next_scene_name) {
 
 	for (var key3 in bgms) {
 		var conf3 = bgms[key3];
-		this.core.audio_loader.loadBGM(key3, conf3.path, 1.0, conf3.loopStart, conf3.loopEnd);
+		var volume = "volume" in conf3 ? conf3.volume : 1.0;
+		this.core.audio_loader.loadBGM(key3, conf3.path, volume, conf3.loopStart, conf3.loopEnd);
 	}
+
+	for (var key4 in fonts) {
+		var conf4 = fonts[key4];
+		this.core.font_loader.loadFont(key4, conf4.path, conf4.format);
+	}
+
 };
 
 SceneLoading.prototype.beforeDraw = function() {
 	base_scene.prototype.beforeDraw.apply(this, arguments);
 
-	// TODO: not wait font loading if no font is ready to load
-	//if (this.core.image_loader.isAllLoaded() && this.core.audio_loader.isAllLoaded() && this.core.font_loader.isAllLoaded()) {
-	if (this.core.image_loader.isAllLoaded() && this.core.audio_loader.isAllLoaded()) {
+	if (this.core.isAllLoaded()) {
 		this.notifyAllLoaded();
 	}
 };
@@ -10139,267 +12507,161 @@ SceneLoading.prototype.draw = function(){
 };
 SceneLoading.prototype.notifyAllLoaded = function(){
 	if (this.next_scene_name) {
-		this.core.changeScene(this.next_scene_name);
+		this.core.scene_manager.changeScene(this.next_scene_name);
 	}
 };
 
 
 module.exports = SceneLoading;
 
-},{"../util":40,"./base":32}],34:[function(require,module,exports){
+},{"../util":53,"./base":44}],46:[function(require,module,exports){
 'use strict';
 
-// typography speed
-var TYPOGRAPHY_SPEED = 10;
+// movie scene
 
-var Util = require("./util");
+var base_scene = require('./base');
+var util = require('../util');
 
-var SerifManager = function () {
-	this._timeoutID = null;
+var SceneMovie = function(core) {
+	base_scene.apply(this, arguments);
 
-	// serif scenario
-	this._script = null;
+	this.video = null;
 
-	// where serif has progressed
-	this._progress = null;
+	// go if the movie is done.
+	this.next_scene_name_and_args = null;
 
-	this._chara_id_list  = [];
-	this._exp_id_list    = [];
-	this._option = {};
+	this.is_playing = false;
 
-	// which chara is talking, left or right
-	this._pos = null;
+	this._height = null;
+	this._width  = null;
+	this._top    = null;
+	this._left   = null;
 
-	this._is_background_changed = false;
-	this._background_image_name = null;
+	this.is_mute = false;
+};
+util.inherit(SceneMovie, base_scene);
 
-	this._char_list = "";
-	this._char_idx = 0;
+SceneMovie.prototype.init = function(movie_path, next_scene_name, varArgs) {
+	base_scene.prototype.init.apply(this, arguments);
 
-	this._is_enable_printing_message = true;
+	var self = this;
 
-	// now printing message
-	this._line_num = 0;
-	this._printing_lines = [];
+	// parse arguments
+	var args = Array.prototype.slice.call(arguments); // to convert array object
+	movie_path      = args.shift();
+	varArgs         = args;
+
+	self.is_playing = false;
+
+	self._height = null;
+	self._width  = null;
+	self._top    = null;
+	self._left   = null;
+
+	// go if the movie is done.
+	self.next_scene_name_and_args = null;
+	if (varArgs.length > 0) {
+		self.next_scene_name_and_args = varArgs;
+	}
+
+	// stop bgm if it is played.
+	this.core.audio_loader.stopBGM();
+
+	var video = document.createElement("video");
+	video.src = movie_path;
+	video.controls = false;
+	video.preload = "auto";
+	video.oncanplaythrough = function () {
+		self._calcDrawSizeAndPosition();
+
+		video.play();
+
+		self.is_playing = true;
+	};
+
+	if (this.is_mute) {
+		video.muted = true;
+	}
+
+	video.load();
+
+
+	self.video = video;
 };
 
-SerifManager.prototype.init = function (script) {
-	if(!script) console.error("set script arguments to use serif_manager class");
+SceneMovie.prototype.beforeDraw = function(){
+	base_scene.prototype.beforeDraw.apply(this, arguments);
 
-	// serif scenario
-	this._script = script;
-
-	this._chara_id_list  = [];
-	this._exp_id_list    = [];
-	this._option = {};
-
-
-
-	this._progress = -1;
-	this._timeoutID = null;
-	this._pos  = null;
-
-	this._is_background_changed = false;
-	this._background_image_name = null;
-
-
-	this._char_list = "";
-	this._char_idx = 0;
-
-	this._is_enable_printing_message = true;
-
-	this._line_num = 0;
-	this._printing_lines = [];
-
-	if(!this.is_end()) {
-		this.next(); // start
+	if(this.is_playing && this.video.ended) {
+		this.notifyEnd();
 	}
 };
 
-SerifManager.prototype.isEnd = function () {
-	return this._progress === this._script.length - 1;
+SceneMovie.prototype.draw = function(){
+	base_scene.prototype.draw.apply(this, arguments);
+
+	var ctx = this.core.ctx;
+
+	if(!ctx) return; // 2D context has been depricated in this game
+
+	ctx.save();
+	ctx.fillStyle = 'black';
+	ctx.fillRect(0, 0, this.core.width, this.core.height);
+
+	if (this.is_playing) {
+		ctx.drawImage(this.video, 0, 0, this.video.videoWidth, this.video.videoHeight, this._left, this._top, this._width, this._height);
+	}
+	ctx.restore();
 };
 
-SerifManager.prototype.next = function () {
-	this._progress++;
+SceneMovie.prototype._calcDrawSizeAndPosition = function(){
+	var scene_aspect = this.width / this.height; // canvas aspect
+	var video_aspect = this.video.videoWidth / this.video.videoHeight; // video aspect
+	var left, top, width, height;
 
-	var script = this._script[this._progress];
-
-	this._showChara(script);
-
-	this._showBackground(script);
-
-	this._setOption(script);
-
-	if(script.serif) {
-		this._printMessage(script.serif);
+	if(video_aspect >= scene_aspect) { // video width is larger than it's height
+		width = this.width;
+		height = this.width / video_aspect;
+		top = (this.height - height) / 2;
+		left = 0;
 	}
-	else {
-		// If serif is empty, show chara without talking and next
-		this.next();
+	else { // video height is larger than it's width
+		height = this.height;
+		width = this.height * video_aspect;
+		top = 0;
+		left = (this.width - width) / 2;
 	}
+
+
+	this._height = height;
+	this._width  = width;
+	this._top    = top;
+	this._left   = left;
 };
 
-SerifManager.prototype._showBackground = function(script) {
-	this._is_background_changed = false;
-	if(script.background && this._background_image_name !== script.background) {
-		this._is_background_changed = true;
-		this._background_image_name  = script.background;
-	}
-};
+SceneMovie.prototype.notifyEnd = function(){
+	// release video data memory
+	this.video = null;
 
-SerifManager.prototype._showChara = function(script) {
-	var pos = script.pos;
+	this.is_playing = false;
 
-	if (pos) {
-		// NOTE: for deprecated pos setting
-		if (pos === "left")  pos = 0;
-		if (pos === "right") pos = 1;
-
-		this._pos  = pos;
-
-		this._chara_id_list[pos] = script.chara;
-		this._exp_id_list[pos]   = script.exp;
-	}
-};
-
-SerifManager.prototype._setOption = function(script) {
-	this._option = script.option || {};
-
-	// for deprecated script "font_color"
-	if (script.font_color) {
-		this._option = Util.shallowCopyHash(this.option);
-		this._option.font_color = script.font_color;
+	if (this.next_scene_name_and_args) {
+		this.core.scene_manager.changeScene.apply(this.core.scene_manager, this.next_scene_name_and_args);
 	}
 };
 
-SerifManager.prototype._printMessage = function (message) {
-	// cancel already started message
-	this._cancelPrintMessage();
 
-	// setup to show message
-	this._char_list = message.split("");
-	this._char_idx = 0;
+module.exports = SceneMovie;
 
-	// clear showing message
-	this._line_num = 0;
-	this._printing_lines = [];
+},{"../util":53,"./base":44}],47:[function(require,module,exports){
 
-	this._startPrintMessage();
-};
-
-SerifManager.prototype._startPrintMessage = function () {
-	var char_length = this._char_list.length;
-	if (this._char_idx >= char_length) return;
-
-	if(this._is_enable_printing_message) {
-		var ch = this._char_list[this._char_idx];
-		this._char_idx++;
-
-		if (ch === "\n") {
-			this._line_num++;
-		}
-		else {
-			// initialize
-			if(!this._printing_lines[this._line_num]) {
-				this._printing_lines[this._line_num] = "";
-			}
-
-			// show A word
-			this._printing_lines[this._line_num] = this._printing_lines[this._line_num] + ch;
-		}
-	}
-
-	this._timeoutID = setTimeout(this._startPrintMessage.bind(this), TYPOGRAPHY_SPEED);
-};
-
-SerifManager.prototype._cancelPrintMessage = function () {
-	if(this._timeoutID !== null) {
-		clearTimeout(this._timeoutID);
-		this._timeoutID = null;
-	}
-};
-
-SerifManager.prototype.startPrintMessage = function () {
-	this._is_enable_printing_message = true;
-};
-SerifManager.prototype.cancelPrintMessage = function () {
-	this._is_enable_printing_message = false;
-};
-
-SerifManager.prototype.isBackgroundChanged = function () {
-	return this._is_background_changed;
-};
-SerifManager.prototype.getBackgroundImageName = function () {
-	return this._background_image_name;
-};
-
-SerifManager.prototype.getImageName = function (pos) {
-	pos = pos || 0;
-	return(this._chara_id_list[pos] ? this._chara_id_list[pos] + "_" + this._exp_id_list[pos] : null);
-};
-SerifManager.prototype.isTalking = function (pos) {
-	return this._pos === pos ? true : false;
-};
-SerifManager.prototype.getOption = function () {
-	return this._option;
-};
-SerifManager.prototype.lines = function () {
-	return this._printing_lines;
-};
-
-
-
-// NOTE: deprecated
-SerifManager.prototype.right_image = function () {
-	var pos = 1; // means right
-
-	return this.getImageName(pos);
-};
-// NOTE: deprecated
-SerifManager.prototype.left_image = function () {
-	var pos = 0; // means left
-
-	return this.getImageName(pos);
-};
-// NOTE: deprecated
-SerifManager.prototype.is_right_talking = function () {
-	var pos = 1; // means right
-
-	return this.isTalking(pos);
-};
-// NOTE: deprecated
-SerifManager.prototype.is_left_talking = function () {
-	var pos = 0; // means left
-
-	return this.isTalking(pos);
-};
-// NOTE: deprecated
-SerifManager.prototype.font_color = function () {
-	return this._option.font_color;
-};
-// NOTE: deprecated
-SerifManager.prototype.is_end = function () {
-	return this.isEnd();
-};
-// NOTE: deprecated
-SerifManager.prototype.is_background_changed = function () {
-	return this.isBackgroundChanged();
-};
-// NOTE: deprecated
-SerifManager.prototype.background_image = function () {
-	return this.getBackgroundImageName();
-};
-
-module.exports = SerifManager;
-
-},{"./util":40}],35:[function(require,module,exports){
-module.exports = "precision mediump float;\nuniform sampler2D uSampler;\nvarying vec2 vTextureCoordinates;\nvarying vec4 vColor;\n\nvoid main() {\n\tvec4 textureColor = texture2D(uSampler, vTextureCoordinates);\n\tgl_FragColor = textureColor * vColor;\n}\n\n";
-
-},{}],36:[function(require,module,exports){
 module.exports = "attribute vec3 aVertexPosition;\nattribute vec2 aTextureCoordinates;\nattribute vec4 aColor;\n\nuniform mat4 uMVMatrix;\nuniform mat4 uPMatrix;\nvarying vec2 vTextureCoordinates;\nvarying vec4 vColor;\n\nvoid main() {\n\tgl_Position = uPMatrix * uMVMatrix * vec4(aVertexPosition, 1.0);\n\tvTextureCoordinates = aTextureCoordinates;\n\tvColor = aColor;\n}\n\n";
 
-},{}],37:[function(require,module,exports){
+},{}],48:[function(require,module,exports){
+
+module.exports = "precision mediump float;\nuniform sampler2D uSampler;\nvarying vec2 vTextureCoordinates;\nvarying vec4 vColor;\n\nvoid main() {\n\tvec4 textureColor = texture2D(uSampler, vTextureCoordinates);\n\tgl_FragColor = textureColor * vColor;\n}\n\n";
+
+},{}],49:[function(require,module,exports){
 'use strict';
 var glmat = require("gl-matrix");
 
@@ -10470,8 +12732,9 @@ ShaderProgram.prototype.createShaderProgram = function(gl, vertex_shader, fragme
 
 module.exports = ShaderProgram;
 
-},{"gl-matrix":15}],38:[function(require,module,exports){
+},{"gl-matrix":20}],50:[function(require,module,exports){
 'use strict';
+/* eslint-disable new-cap */
 
 /*
  * TODO: split load and save method by sync and async
@@ -10481,17 +12744,24 @@ module.exports = ShaderProgram;
 
 var Util = require("../util");
 
-var DEFAULT_KEY = "hakurei_engine:default";
-
 var StorageBase = function (data) {
 	if(!data) data = {};
 	this._data = data;
 };
 
 // save file unique key
+//
+// for browser: local storage key name
+// for electron or node-webkit: file name
+//
 // this constant must be overridden!
 StorageBase.KEY = function() {
-	return DEFAULT_KEY;
+	throw new Error("KEY method must be overridden.");
+};
+
+// save file directory for Electron or NW.js
+StorageBase.localFileDirectory = function() {
+	return "save";
 };
 
 StorageBase.prototype.set = function(key, value) {
@@ -10500,10 +12770,14 @@ StorageBase.prototype.set = function(key, value) {
 StorageBase.prototype.get = function(key) {
 	return this._data[key];
 };
+StorageBase.prototype.exists = function(key) {
+	return key in this._data;
+};
+
 StorageBase.prototype.remove = function(key) {
 	return delete this._data[key];
 };
-StorageBase.prototype.isEmpty = function(key) {
+StorageBase.prototype.isEmpty = function() {
 	return Object.keys(this._data).length === 0;
 };
 StorageBase.prototype.toHash = function() {
@@ -10555,7 +12829,7 @@ StorageBase._localFileDirectoryPath = function() {
 	var app  = window.require('electron').remote.app;
 	var base = app.getPath("appData");
 	var app_name = app.getName();
-	return path.join(base, app_name, 'save/');
+	return path.join(base, app_name, this.localFileDirectory());
 };
 
 StorageBase._localFileName = function(key) {
@@ -10575,7 +12849,21 @@ StorageBase.prototype._saveToWebStorage = function() {
 		window.localStorage.setItem(key, data);
 	}
 	catch (e) {
+		// nothing to do
 	}
+};
+
+StorageBase.prototype.reload = function() {
+	var Klass = this.constructor;
+	var data;
+	if (Klass.isLocalMode()) {
+		data = Klass._loadFromLocalFile();
+	}
+	else {
+		data = Klass._loadFromWebStorage();
+	}
+
+	this._data = data;
 };
 
 StorageBase.load = function() {
@@ -10607,7 +12895,6 @@ StorageBase._loadFromLocalFile = function() {
 
 	var data = fs.readFileSync(file_path, { encoding: 'utf8' });
 
-	var Klass = this;
 	if (data) {
 		return JSON.parse(data);
 	}
@@ -10623,9 +12910,9 @@ StorageBase._loadFromWebStorage = function() {
 		data = window.localStorage.getItem(key);
 	}
 	catch (e) {
+		// nothing to do
 	}
 
-	var Klass = this;
 	if (data) {
 		return JSON.parse(data);
 	}
@@ -10651,7 +12938,7 @@ StorageBase.prototype.del = function() {
 StorageBase.prototype._removeLocalFile = function() {
 	var Klass = this.constructor;
 	var fs = window.require('fs');
-	var file_path = this._localFilePath(Klass.KEY());
+	var file_path = Klass._localFilePath(Klass.KEY());
 
 	if (fs.existsSync(file_path)) {
 		fs.unlinkSync(file_path);
@@ -10665,12 +12952,13 @@ StorageBase.prototype._removeWebStorage = function() {
 		window.localStorage.removeItem(key);
 	}
 	catch (e) {
+		// nothing to do
 	}
 };
 
 module.exports = StorageBase;
 
-},{"../util":40}],39:[function(require,module,exports){
+},{"../util":53}],51:[function(require,module,exports){
 'use strict';
 var base_class = require('./base');
 var util = require('../util');
@@ -10680,19 +12968,71 @@ var StorageSave = function(scene) {
 };
 util.inherit(StorageSave, base_class);
 
+var PREFIX = "hakurei_engine";
+var KEY = "save";
+
 StorageSave.KEY = function(){
-	var key = "hakurei_engine:save";
 	if (!this.isLocalMode() && window && window.location) {
-		return(key + ":" + window.location.pathname);
+		// localstorage key for browser
+		return([PREFIX, KEY, window.location.pathname].join(":"));
 	}
 	else {
-		return "save";
+		// file name for electron or node-webkit
+		return KEY;
 	}
 };
 
 module.exports = StorageSave;
 
-},{"../util":40,"./base":38}],40:[function(require,module,exports){
+},{"../util":53,"./base":50}],52:[function(require,module,exports){
+'use strict';
+var base_class = require('./base');
+var util = require('../util');
+
+var StorageScenario = function(scene) {
+	base_class.apply(this, arguments);
+};
+util.inherit(StorageScenario, base_class);
+
+var PREFIX = "hakurei_engine";
+var KEY = "scenario";
+
+StorageScenario.KEY = function(){
+	if (!this.isLocalMode() && window && window.location) {
+		// localstorage key for browser
+		return([PREFIX, KEY, window.location.pathname].join(":"));
+	}
+	else {
+		// file name for electron or node-webkit
+		return KEY;
+	}
+};
+
+StorageScenario.prototype.getSerifStatus = function(id) {
+	var status = this.get(id);
+
+	if(!status) status = {};
+
+	return status;
+};
+
+StorageScenario.prototype.getPlayedCount = function(id){
+	var status = this.getSerifStatus(id);
+
+	return status.played_count || 0;
+};
+
+StorageScenario.prototype.incrementPlayedCount = function(id){
+	var status = this.getSerifStatus(id);
+
+	status.played_count = status.played_count || 0;
+	status.played_count++;
+	this.set(id, status);
+};
+
+module.exports = StorageScenario;
+
+},{"../util":53,"./base":50}],53:[function(require,module,exports){
 'use strict';
 var Util = {
 	inherit: function( child, parent ) {
@@ -10749,18 +13089,99 @@ var Util = {
 
 		return false;
 	},
+
+	getRandomInt: function(min, max) {
+		if (arguments.length === 1) {
+			max = arguments[0];
+			min = 1;
+		}
+
+		return Math.floor( Math.random() * (max - min + 1) ) + min;
+	},
+	// save blob object to your computer
+	downloadBlob: function (blob, fileName) {
+		// create url
+		var url = (window.URL || window.webkitURL);
+		var dataUrl = url.createObjectURL(blob);
+		// create mouse event
+		var event = document.createEvent("MouseEvents");
+		event.initMouseEvent("click", true, false, window, 0, 0, 0, 0, 0, false, false, false, false, 0, null);
+		// create a tag
+		var a = document.createElementNS("http://www.w3.org/1999/xhtml", "a");
+		a.href = dataUrl;
+		a.download = fileName;
+		// dispatch mouse click event to a link
+		a.dispatchEvent(event);
+	},
 	shallowCopyHash: function (src_hash) {
 		var dst_hash = {};
 		for(var k in src_hash){
 			dst_hash[k] = src_hash[k];
 		}
 		return dst_hash;
-	}
+	},
+
+	// for old browser
+	assign: function assign(target, varArgs) { // .length of function is 2
+		if (!target) { // TypeError if undefined or null
+			throw new TypeError('Cannot convert undefined or null to object');
+		}
+
+		var to = Object(target);
+
+		for (var index = 1; index < arguments.length; index++) {
+			var nextSource = arguments[index];
+
+			if (nextSource) { // Skip over if undefined or null
+				for (var nextKey in nextSource) {
+					// Avoid bugs when hasOwnProperty is shadowed
+					if (Object.prototype.hasOwnProperty.call(nextSource, nextKey)) {
+						to[nextKey] = nextSource[nextKey];
+					}
+				}
+			}
+		}
+		return to;
+	},
+
+	// for old browser
+	bind: function(func, oThis) {
+		if (typeof func !== 'function') {
+			// closest thing possible to the ECMAScript 5
+			// internal IsCallable function
+			throw new TypeError('Function.prototype.bind - what is trying to be bound is not callable');
+		}
+
+		var aArgs   = Array.prototype.slice.call(arguments, 1),
+		fToBind = func,
+		FNOP    = function() {},
+		fBound  = function() {
+			return fToBind.apply(func instanceof FNOP ? func : oThis,
+				aArgs.concat(Array.prototype.slice.call(arguments)));
+		};
+
+		if (func.prototype) {
+			// Function.prototype doesn't have a prototype property
+			FNOP.prototype = func.prototype;
+		}
+		fBound.prototype = new FNOP();
+
+		return fBound;
+	},
+	// for old browser
+	// NOTE: not perfect polyfill
+	defineProperty: function(klass, prop_name) {
+		var private_prop_name = "_" + prop_name;
+		klass.prototype[prop_name] = function(val) {
+			if (typeof val !== 'undefined') { this[private_prop_name] = val; }
+			return this[private_prop_name];
+		};
+	},
 };
 
 module.exports = Util;
 
-},{}],41:[function(require,module,exports){
+},{}],54:[function(require,module,exports){
 'use strict';
 var Game = require('./game');
 
@@ -10783,7 +13204,7 @@ if (window.require) {
 }
 
 
-},{"./game":4}],42:[function(require,module,exports){
+},{"./game":2}],55:[function(require,module,exports){
 'use strict';
 
 // ローディングシーン
@@ -10791,7 +13212,6 @@ if (window.require) {
 var base_scene = require('../hakurei').scene.base;
 var util = require('../hakurei').util;
 var AssetsConfig = require('../assets_config');
-var CONSTANT = require('../constant');
 
 var SceneLoading = function(core) {
 	base_scene.apply(this, arguments);
@@ -10826,7 +13246,7 @@ SceneLoading.prototype.beforeDraw = function() {
 
 	//if (this.core.image_loader.isAllLoaded() && this.core.audio_loader.isAllLoaded() && this.core.font_loader.isAllLoaded()) {
 	if (this.core.image_loader.isAllLoaded() && this.core.audio_loader.isAllLoaded()) {
-		this.core.changeScene("main");
+		this.core.scene_manager.changeScene("main");
 	}
 };
 SceneLoading.prototype.draw = function(){
@@ -10882,13 +13302,12 @@ SceneLoading.prototype.progress = function(){
 
 module.exports = SceneLoading;
 
-},{"../assets_config":1,"../constant":2,"../hakurei":5}],43:[function(require,module,exports){
+},{"../assets_config":1,"../hakurei":3}],56:[function(require,module,exports){
 'use strict';
 
 var base_scene = require('../hakurei').scene.base;
 
 var util = require('../hakurei').util;
-var CONSTANT = require('../hakurei').constant;
 
 var UIParts = require('../hakurei').object.ui_parts;
 
@@ -11238,4 +13657,4 @@ SceneStage.prototype.removeOutOfStageObjects = function() {
 
 module.exports = SceneStage;
 
-},{"../hakurei":5}]},{},[41]);
+},{"../hakurei":3}]},{},[54]);
