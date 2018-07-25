@@ -1797,6 +1797,7 @@ InputManager.prototype.mouseScroll = function () {
 InputManager.prototype.handleTouchDown = function(event) {
 	// treat as mouse event
 	this.is_left_clicked = true;
+	this.handleTouchMove(event);
 	event.preventDefault();
 };
 InputManager.prototype.handleTouchUp = function(event) {
@@ -1807,8 +1808,12 @@ InputManager.prototype.handleTouchUp = function(event) {
 InputManager.prototype.handleTouchMove = function (event) {
 	event.preventDefault();
 
-	var x = event.touches[0].clientX;
-	var y = event.touches[0].clientY;
+	// get absolute coordinate position of canvas and adjust click position
+	// because clientX and clientY return the position from the document.
+	var rect = event.target.getBoundingClientRect();
+
+	var x = event.changedTouches[0].clientX - rect.left;
+	var y = event.changedTouches[0].clientY - rect.top;
 
 	this.mouse_change_x = this.mouse_x - x;
 	this.mouse_change_y = this.mouse_y - y;
