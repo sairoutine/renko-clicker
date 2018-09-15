@@ -159,7 +159,7 @@ SceneStage.prototype.draw = function(){
 	// スコア表示
 	ctx.font = "48px 'Comic Sans MS'";
 	ctx.textAlign = 'right';
-	ctx.textBaseAlign = 'middle';
+	//ctx.textBaseline = 'middle';
 	ctx.fillStyle = 'rgb( 0, 0, 0 )';
 	ctx.fillText("Score: " + this.score, this.width - 10, this.height - 10);
 
